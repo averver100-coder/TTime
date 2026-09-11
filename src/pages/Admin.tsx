@@ -256,7 +256,7 @@ export const Admin: React.FC = () => {
           </div>
           <div className="text-center mb-6">
             <h2 className="text-2xl font-bold text-gray-800">관리자 로그인</h2>
-            <p className="text-xs text-gray-500 mt-1">슈퍼어드민 또는 관리자 계정으로 로그인해 주세요.</p>
+            <p className="text-xs text-gray-500 mt-1">관리자 계정으로 로그인해 주세요.</p>
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
@@ -339,7 +339,7 @@ export const Admin: React.FC = () => {
             ) : (
               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-800 rounded-full text-xs font-bold shadow-2xs">
                 <Shield className="w-4 h-4 text-blue-600" />
-                <span>일반 관리자 ({currentUser?.id})</span>
+                <span>관리자 ({currentUser?.id})</span>
               </div>
             )}
 
