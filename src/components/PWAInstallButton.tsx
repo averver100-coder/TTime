@@ -81,11 +81,11 @@ export const PWAInstallButton: React.FC = () => {
         setInstalledToast(true);
         setTimeout(() => setInstalledToast(false), 5000);
       } else if (isDesktop) {
-        // On PC, if browser prompt was unavailable or dismissed, automatically create shortcut file and show guide
+        // On PC: trigger desktop shortcut download (.url) directly
         downloadDesktopShortcut();
+        setShowBottomBanner(false);
         setDownloadedToast(true);
-        setTimeout(() => setDownloadedToast(false), 4500);
-        setShowModal(true);
+        setTimeout(() => setDownloadedToast(false), 5000);
       } else {
         // Mobile fallback guide
         setShowModal(true);
@@ -93,10 +93,12 @@ export const PWAInstallButton: React.FC = () => {
     } catch {
       if (isDesktop) {
         downloadDesktopShortcut();
+        setShowBottomBanner(false);
         setDownloadedToast(true);
-        setTimeout(() => setDownloadedToast(false), 4500);
+        setTimeout(() => setDownloadedToast(false), 5000);
+      } else {
+        setShowModal(true);
       }
-      setShowModal(true);
     } finally {
       setIsInstalling(false);
     }
@@ -104,8 +106,9 @@ export const PWAInstallButton: React.FC = () => {
 
   const handleManualDownloadShortcut = () => {
     downloadDesktopShortcut();
+    setShowBottomBanner(false);
     setDownloadedToast(true);
-    setTimeout(() => setDownloadedToast(false), 4500);
+    setTimeout(() => setDownloadedToast(false), 5000);
   };
 
   const handleCopyUrl = async () => {
@@ -144,9 +147,9 @@ export const PWAInstallButton: React.FC = () => {
 
       {/* Desktop Shortcut Downloaded Toast */}
       {downloadedToast && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-blue-600 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2 text-sm font-bold animate-in fade-in slide-in-from-top-4 duration-300">
-          <FolderDown className="w-5 h-5" />
-          <span>바탕화면 바로가기 파일이 다운로드되었습니다! (바탕화면으로 이동하여 실행)</span>
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-blue-600 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-sm font-bold animate-in fade-in slide-in-from-top-4 duration-300">
+          <FolderDown className="w-5 h-5 shrink-0" />
+          <span>바탕화면 바로가기 아이콘(쌤타임_시간표.url)이 다운로드되었습니다!</span>
         </div>
       )}
 
@@ -158,25 +161,23 @@ export const PWAInstallButton: React.FC = () => {
         </div>
       )}
 
-      {/* Header Install Button - Protected from wrapping and truncation */}
-      <button
-        type="button"
-        onClick={handleInstallAction}
-        disabled={isInstalling}
-        className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition shadow-2xs hover:shadow-xs active:scale-95 disabled:opacity-60"
-        title={isDesktop ? 'PC 바탕화면에 바로가기 아이콘 생성하기' : '홈 화면에 앱 설치하기'}
-      >
-        {isDesktop ? (
-          <Monitor className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-        ) : (
+      {/* Header Install Button - Shown ONLY on mobile (Hidden on PC as requested) */}
+      {!isDesktop && (
+        <button
+          type="button"
+          onClick={handleInstallAction}
+          disabled={isInstalling}
+          className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition shadow-2xs hover:shadow-xs active:scale-95 disabled:opacity-60"
+          title="홈 화면에 앱 설치하기"
+        >
           <Download className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-        )}
-        <span className="whitespace-nowrap">앱 설치</span>
-      </button>
+          <span className="whitespace-nowrap">앱 설치</span>
+        </button>
+      )}
 
-      {/* Floating Bottom Install Banner */}
+      {/* Floating Bottom Install Banner - Centered on screen */}
       {showBottomBanner && !showModal && (
-        <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:max-w-md z-40 bg-white/95 backdrop-blur-md rounded-2xl p-4 shadow-2xl border border-blue-100 ring-1 ring-blue-500/10 animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-[94%] sm:w-[460px] max-w-lg bg-white/95 backdrop-blur-md rounded-2xl p-4 sm:p-5 shadow-2xl border border-blue-100 ring-1 ring-blue-500/10 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center p-1 shrink-0 overflow-hidden shadow-2xs">

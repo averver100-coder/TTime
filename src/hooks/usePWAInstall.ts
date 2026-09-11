@@ -143,16 +143,21 @@ export function usePWAInstall() {
   const downloadDesktopShortcut = useCallback((): boolean => {
     try {
       const currentUrl = typeof window !== 'undefined' ? (window.location.origin || window.location.href) : '';
-      const fileContent = `[InternetShortcut]\r\nURL=${currentUrl}/\r\nIconIndex=0\r\nIconFile=${currentUrl}/pwa-192x192.png\r\nHotKey=0\r\n`;
-      const blob = new Blob([fileContent], { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
+      const downloadEndpoint = `/api/download-shortcut?url=${encodeURIComponent(currentUrl)}`;
+
+      // Create an anchor tag linking directly to the server endpoint with Content-Disposition headers.
+      // This prevents Chrome/Edge from stripping the extension or renaming the file to "download".
       const a = document.createElement('a');
-      a.href = url;
-      a.download = '쌤타임 (상일미디어고 시간표).url';
+      a.href = downloadEndpoint;
+      a.setAttribute('download', '쌤타임_시간표.url');
+      a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setTimeout(() => {
+        if (document.body.contains(a)) {
+          document.body.removeChild(a);
+        }
+      }, 1000);
       return true;
     } catch (e) {
       console.error('Failed to download desktop shortcut:', e);

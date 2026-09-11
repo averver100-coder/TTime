@@ -372,6 +372,27 @@ app.get('/manifest.json', (req, res, next) => {
   next();
 });
 
+// Direct desktop internet shortcut (.url) download
+app.get('/api/download-shortcut', (req, res) => {
+  const queryUrl = typeof req.query.url === 'string' ? req.query.url : '';
+  const proto = req.get('x-forwarded-proto') || req.protocol || 'https';
+  const host = req.get('host') || 'localhost:3000';
+  const defaultUrl = `${proto}://${host}/`;
+  const targetUrl = queryUrl && queryUrl.startsWith('http') ? queryUrl : defaultUrl;
+
+  // Standard Windows Internet Shortcut (.url) INI format with icon references
+  const fileContent = `[InternetShortcut]\r\nURL=${targetUrl}\r\nIDList=\r\nIconIndex=0\r\nIconFile=${targetUrl}favicon.ico\r\nHotKey=0\r\n[{000214A0-0000-0000-C000-000000000046}]\r\nProp3=19,0\r\n[InternetShortcut.A]\r\nURL=${targetUrl}\r\n[InternetShortcut.W]\r\nURL=${targetUrl}\r\n`;
+
+  // Provide proper MIME type and filename with both ASCII fallback and RFC 5987 UTF-8 encoding
+  res.setHeader('Content-Type', 'application/x-mswinurl; charset=utf-8');
+  res.setHeader(
+    'Content-Disposition',
+    'attachment; filename="ssamtime.url"; filename*=UTF-8\'\'%EC%8C%A4%ED%83%80%EC%9E%84_%EC%8B%9C%EA%B0%84%ED%91%9C.url'
+  );
+  res.setHeader('Cache-Control', 'no-cache');
+  return res.send(fileContent);
+});
+
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
