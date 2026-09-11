@@ -26,7 +26,9 @@ export const PWAInstallButton: React.FC = () => {
     isMac,
     isWhale, 
     install,
-    downloadDesktopShortcut
+    downloadDesktopShortcut,
+    downloadDesktopShortcutZip,
+    downloadAppIcon,
   } = usePWAInstall();
 
   const [showModal, setShowModal] = useState(false);
@@ -81,8 +83,8 @@ export const PWAInstallButton: React.FC = () => {
         setInstalledToast(true);
         setTimeout(() => setInstalledToast(false), 5000);
       } else if (isDesktop) {
-        // On PC: trigger desktop shortcut download (.url) directly
-        downloadDesktopShortcut();
+        // On PC: trigger desktop shortcut package (.url + .ico + 1-click batch installer)
+        downloadDesktopShortcutZip();
         setShowBottomBanner(false);
         setDownloadedToast(true);
         setTimeout(() => setDownloadedToast(false), 5000);
@@ -92,7 +94,7 @@ export const PWAInstallButton: React.FC = () => {
       }
     } catch {
       if (isDesktop) {
-        downloadDesktopShortcut();
+        downloadDesktopShortcutZip();
         setShowBottomBanner(false);
         setDownloadedToast(true);
         setTimeout(() => setDownloadedToast(false), 5000);
@@ -104,8 +106,22 @@ export const PWAInstallButton: React.FC = () => {
     }
   };
 
+  const handleManualDownloadZip = () => {
+    downloadDesktopShortcutZip();
+    setShowBottomBanner(false);
+    setDownloadedToast(true);
+    setTimeout(() => setDownloadedToast(false), 5000);
+  };
+
   const handleManualDownloadShortcut = () => {
     downloadDesktopShortcut();
+    setShowBottomBanner(false);
+    setDownloadedToast(true);
+    setTimeout(() => setDownloadedToast(false), 5000);
+  };
+
+  const handleManualDownloadIcon = () => {
+    downloadAppIcon();
     setShowBottomBanner(false);
     setDownloadedToast(true);
     setTimeout(() => setDownloadedToast(false), 5000);
@@ -149,7 +165,7 @@ export const PWAInstallButton: React.FC = () => {
       {downloadedToast && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-blue-600 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-sm font-bold animate-in fade-in slide-in-from-top-4 duration-300">
           <FolderDown className="w-5 h-5 shrink-0" />
-          <span>바탕화면 바로가기 아이콘(쌤타임_시간표.url)이 다운로드되었습니다!</span>
+          <span>바탕화면 바로가기(.url)와 고화질 아이콘(.ico)이 다운로드되었습니다!</span>
         </div>
       )}
 
@@ -194,7 +210,7 @@ export const PWAInstallButton: React.FC = () => {
                 </div>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {isDesktop 
-                    ? '바탕화면에 아이콘을 생성하여 주소창 없이 편리하게 확인하세요.' 
+                    ? '바로가기(.url)와 고화질 아이콘을 다운로드하여 바탕화면에서 편리하게 확인하세요.' 
                     : '홈 화면에 추가하여 주소창 없이 앱처럼 편리하게 확인하세요.'}
                 </p>
               </div>
@@ -228,7 +244,7 @@ export const PWAInstallButton: React.FC = () => {
               ) : (
                 <Download className="w-3.5 h-3.5 shrink-0" />
               )}
-              <span>{isIOS ? '설치 방법 안내' : isDesktop ? '바탕화면에 설치하기' : '지금 앱 설치하기'}</span>
+              <span>{isIOS ? '설치 방법 안내' : isDesktop ? '바로가기+아이콘 받기' : '지금 앱 설치하기'}</span>
             </button>
           </div>
         </div>
@@ -267,27 +283,50 @@ export const PWAInstallButton: React.FC = () => {
               {/* PC Desktop Dedicated Experience */}
               {isDesktop ? (
                 <div className="space-y-3.5">
-                  {/* Option 1: Direct Desktop Shortcut Download */}
-                  <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
+                  {/* Option 1: Bundled Shortcut Package (Recommended) */}
+                  <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl space-y-2.5">
                     <div className="flex items-start gap-2">
                       <div className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0 mt-0.5">
-                        <Monitor className="w-4 h-4" />
+                        <FolderDown className="w-4 h-4" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <h4 className="text-xs font-bold text-blue-950">방법 1. 바탕화면 바로가기 파일 다운로드</h4>
+                        <div className="flex items-center gap-1.5">
+                          <h4 className="text-xs font-bold text-blue-950">방법 1. 바로가기 + 아이콘 패키지 다운로드</h4>
+                          <span className="px-1.5 py-0.5 bg-blue-600 text-white text-[9px] font-bold rounded">추천</span>
+                        </div>
                         <p className="text-[11px] text-blue-800 leading-relaxed mt-0.5">
-                          다운로드된 바로가기 파일(<strong>.url</strong>)을 PC 바탕화면으로 드래그해 놓으시면 언제든 아이콘 클릭 한 번으로 실행됩니다.
+                          브라우저 보안으로 파일명이 'download'로 바뀌는 현상을 방지하며, <strong>.url 바로가기 파일</strong>과 <strong>고화질 이미지 아이콘(.ico)</strong>, <strong>[원클릭 설치 실행기]</strong>가 함께 저장됩니다.
                         </p>
                       </div>
                     </div>
+
                     <button
                       type="button"
-                      onClick={handleManualDownloadShortcut}
-                      className="w-full mt-1 py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-2 shadow-sm active:scale-98 transition"
+                      onClick={handleManualDownloadZip}
+                      className="w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-2 shadow-sm active:scale-98 transition"
                     >
                       <Download className="w-4 h-4" />
-                      <span>바탕화면 바로가기 파일(.url) 받기</span>
+                      <span>바로가기 + 아이콘 패키지(.zip) 받기</span>
                     </button>
+
+                    <div className="flex items-center gap-2 pt-1 border-t border-blue-200/60">
+                      <button
+                        type="button"
+                        onClick={handleManualDownloadShortcut}
+                        className="flex-1 py-1.5 px-2 bg-white hover:bg-blue-100/60 text-blue-800 border border-blue-200 rounded-lg text-[11px] font-medium transition text-center"
+                        title=".url 바로가기 파일만 받기"
+                      >
+                        .url 파일만 받기
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleManualDownloadIcon}
+                        className="flex-1 py-1.5 px-2 bg-white hover:bg-blue-100/60 text-blue-800 border border-blue-200 rounded-lg text-[11px] font-medium transition text-center"
+                        title="고화질 아이콘(.ico) 파일만 받기"
+                      >
+                        .ico 아이콘만 받기
+                      </button>
+                    </div>
                   </div>
 
                   {/* Option 2: Browser Standalone App Install (Chrome/Edge) */}
