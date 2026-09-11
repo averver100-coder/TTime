@@ -332,6 +332,28 @@ app.post('/api/teachers', (req, res) => {
 app.post('/api/parse-timetable', upload.single('file'), handleTimetableParse);
 app.post('/api/parse-timetable-pdf', upload.single('file'), handleTimetableParse);
 
+app.get('/sw.js', (req, res, next) => {
+  const distSw = path.join(process.cwd(), 'dist', 'sw.js');
+  const pubSw = path.join(process.cwd(), 'public', 'sw.js');
+  const swPath = fs.existsSync(distSw) ? distSw : (fs.existsSync(pubSw) ? pubSw : null);
+  if (swPath) {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('Service-Worker-Allowed', '/');
+    return res.sendFile(swPath);
+  }
+  next();
+});
+
+app.get(/^\/workbox-[a-zA-Z0-9]+\.js$/, (req, res, next) => {
+  const fileName = path.basename(req.path);
+  const distFile = path.join(process.cwd(), 'dist', fileName);
+  if (fs.existsSync(distFile)) {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    return res.sendFile(distFile);
+  }
+  next();
+});
+
 app.get('/manifest.webmanifest', (req, res, next) => {
   const p = path.join(process.cwd(), 'public', 'manifest.webmanifest');
   if (fs.existsSync(p)) {

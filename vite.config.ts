@@ -83,9 +83,11 @@ export default defineConfig(() => {
           theme_color: '#2563eb',
           background_color: '#ffffff',
           display: 'standalone',
+          display_override: ['standalone', 'window-controls-overlay'],
           orientation: 'portrait',
           start_url: '/',
           scope: '/',
+          prefer_related_applications: false,
           icons: [
             {
               src: '/pwa-192x192.png',
