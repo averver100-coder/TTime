@@ -270,7 +270,7 @@ export const Home: React.FC = () => {
               : isBeforeSchool 
               ? '수업 시작 전' 
               : currentPeriod 
-              ? `${currentPeriod.period}교시 진행 중` 
+              ? (todayTimetable[currentPeriod.period] ? `${currentPeriod.period}교시 수업 진행중` : `${currentPeriod.period}교시 공강`)
               : '쉬는 시간'}
           </span>
         </div>
@@ -289,7 +289,11 @@ export const Home: React.FC = () => {
                   <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-600"></span>
                 </span>
                 <span className="font-bold text-sm sm:text-base">
-                  지금 현재는 {currentPeriod.period}교시 ({currentPeriod.start} ~ {currentPeriod.end}) 수업 진행 중입니다.
+                  {todayTimetable[currentPeriod.period] ? (
+                    <>지금 현재는 {currentPeriod.period}교시 ({currentPeriod.start} ~ {currentPeriod.end}) 수업 진행중입니다.</>
+                  ) : (
+                    <>지금 현재는 {currentPeriod.period}교시 ({currentPeriod.start} ~ {currentPeriod.end}) 공강 시간입니다.</>
+                  )}
                 </span>
               </div>
               <span className="text-xs font-semibold text-blue-800 bg-white/90 px-2 py-0.5 rounded border border-blue-200 shadow-2xs">
@@ -490,7 +494,7 @@ export const Home: React.FC = () => {
                       {room ? (
                         isOngoing ? (
                           <div className="flex flex-col items-end">
-                            <span className="text-xs font-bold text-blue-600">진행 중</span>
+                            <span className="text-xs font-bold text-blue-600">수업 진행중</span>
                             <span className="text-[11px] text-blue-700 font-medium">약 {endM - currentMins}분 남음</span>
                           </div>
                         ) : isNextClass ? (
@@ -617,11 +621,14 @@ export const Home: React.FC = () => {
         <div className="max-w-2xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3 cursor-pointer" onClick={handleLogoClick}>
             <SchoolLogo 
-              className="w-10 h-10 object-contain"
+              className="w-10 h-10 object-contain shrink-0"
             />
-            <div>
+            <div className="flex flex-col justify-center min-w-0">
               <h1 className="text-xl font-bold text-gray-800 tracking-tight leading-tight">쌤타임</h1>
-              <p className="text-xs font-medium text-gray-500">상일미디어 고등학교 수업시간표</p>
+              <div className="text-[11px] sm:text-xs font-medium text-gray-500 leading-tight mt-0.5">
+                <span className="block whitespace-nowrap">상일미디어 고등학교</span>
+                <span className="block whitespace-nowrap">수업시간표</span>
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
