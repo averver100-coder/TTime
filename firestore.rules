@@ -1,0 +1,21 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /teachers/{teacherId} {
+      // Anyone can read the timetables
+      allow read: if true;
+      // In a production environment, this should be restricted to authenticated admins.
+      // For this prototype using a custom UI-based login, we allow writes.
+      allow write: if true;
+    }
+
+    match /admin/{docId} {
+      allow read, write: if true;
+    }
+  }
+}

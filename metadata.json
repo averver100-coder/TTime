@@ -1,0 +1,6 @@
+{
+  "name": "쌤타임",
+  "description": "상일미디어 고등학교 수업시간표",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

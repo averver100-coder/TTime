@@ -1,0 +1,36 @@
+{
+  "entities": {
+    "Teacher": {
+      "title": "Teacher",
+      "description": "A teacher's profile and timetable",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Teacher's name"
+        },
+        "homeroom": {
+          "type": "string",
+          "description": "Homeroom assigned to the teacher, e.g., '101' for 1st grade 1st class"
+        },
+        "timetable": {
+          "type": "string",
+          "description": "JSON stringified timetable data to simplify storage and updates. Maps days to periods to classrooms."
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Timestamp of the last update"
+        }
+      },
+      "required": ["name", "timetable"]
+    }
+  },
+  "firestore": {
+    "teachers/{teacherId}": {
+      "schema": {
+        "$ref": "#/entities/Teacher"
+      },
+      "description": "Stores teacher information and their timetables."
+    }
+  }
+}
