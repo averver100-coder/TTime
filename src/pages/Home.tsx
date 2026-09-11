@@ -18,7 +18,18 @@ import {
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { fetchTeachers, getDefaultTeachers } from '../lib/store';
-import { Teacher, DayOfWeek, dayNames, getDayFromIndex, getCurrentTimeMinutes, parseTimeString, periods, formatClassroom } from '../lib/timetableUtils';
+import { 
+  Teacher, 
+  DayOfWeek, 
+  dayNames, 
+  dayNamesShort,
+  getDayFromIndex, 
+  getCurrentTimeMinutes, 
+  parseTimeString, 
+  periods, 
+  formatClassroom,
+  formatClassroomShort 
+} from '../lib/timetableUtils';
 
 const ALL_WEEKDAYS: DayOfWeek[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
@@ -288,7 +299,7 @@ export const Home: React.FC = () => {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-600"></span>
                 </span>
-                <span className="font-bold text-sm sm:text-base">
+                <span className="font-bold text-sm sm:text-base break-keep-all leading-snug">
                   {todayTimetable[currentPeriod.period] ? (
                     <>지금 현재는 {currentPeriod.period}교시 ({currentPeriod.start} ~ {currentPeriod.end}) 수업 진행중입니다.</>
                   ) : (
@@ -337,8 +348,8 @@ export const Home: React.FC = () => {
                 <Check className="w-4 h-4" />
               </div>
               <div>
-                <span className="font-bold text-gray-900 text-sm">오늘({dayNames[currentDay]})의 모든 정규 수업이 종료되었습니다.</span>
-                <p className="text-xs text-gray-500 mt-0.5">아래에서 오늘 진행되었던 전체 시간표를 상세히 확인하실 수 있습니다.</p>
+                <span className="font-bold text-gray-900 text-sm break-keep-all leading-snug">오늘({dayNames[currentDay]})의 모든 정규 수업이 종료되었습니다.</span>
+                <p className="text-xs text-gray-500 mt-0.5 break-keep-all">아래에서 오늘 진행되었던 전체 시간표를 상세히 확인하실 수 있습니다.</p>
               </div>
             </div>
             <span className="text-xs text-gray-500 bg-white px-2.5 py-1 rounded-md border border-gray-200 font-medium">
@@ -352,9 +363,9 @@ export const Home: React.FC = () => {
                 <Coffee className="w-4 h-4" />
               </div>
               <div>
-                <span className="font-bold text-sm">지금은 쉬는 시간입니다.</span>
+                <span className="font-bold text-sm break-keep-all leading-snug">지금은 쉬는 시간입니다.</span>
                 {nextUpcomingPeriodWithClass && (
-                  <p className="text-xs text-emerald-800 mt-0.5">
+                  <p className="text-xs text-emerald-800 mt-0.5 break-keep-all">
                     다음 {nextUpcomingPeriodWithClass.period}교시 시작까지 약 {parseTimeString(nextUpcomingPeriodWithClass.start) - currentMins}분 남았습니다.
                   </p>
                 )}
@@ -534,36 +545,47 @@ export const Home: React.FC = () => {
     const daysToShow: DayOfWeek[] = selectedDays.length > 0 ? selectedDays : ALL_WEEKDAYS;
 
     return (
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-6">
-        <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <CalendarDays className="w-5 h-5 text-blue-600" />
-            <h3 className="font-bold text-gray-800 text-base">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-6 break-keep-all">
+        <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 min-w-0">
+            <CalendarDays className="w-5 h-5 text-blue-600 shrink-0" />
+            <h3 className="font-bold text-gray-800 text-sm sm:text-base break-keep-all">
               {selectedTeacher.name} 선생님 수업시간표
             </h3>
           </div>
-          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 shrink-0 whitespace-nowrap">
             {selectedDays.length === 0 ? '전체 주간 (월~금)' : `${selectedDays.length}개 요일 선택됨`}
           </span>
         </div>
         <div className="p-0 overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[340px]">
+          <table className="w-full text-left border-collapse min-w-[320px] table-fixed">
             <thead>
               <tr className="bg-gray-50/80 border-b border-gray-100">
-                <th className="py-3 px-3 font-semibold text-gray-500 text-xs w-20 text-center">교시</th>
+                <th className="py-2.5 px-1 sm:px-2 font-semibold text-gray-500 text-xs w-[64px] sm:w-20 text-center whitespace-nowrap">
+                  교시
+                </th>
                 {daysToShow.map(day => {
                   const isToday = day === todayDay;
                   return (
                     <th 
                       key={day} 
-                      className={`py-3 px-3 font-bold text-xs text-center ${
-                        isToday ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
+                      className={`py-2.5 px-0.5 sm:px-2 font-bold text-xs text-center transition-colors ${
+                        isToday ? 'bg-blue-50 text-blue-700 font-extrabold' : 'text-gray-700'
                       }`}
                     >
-                      <div className="flex items-center justify-center gap-1">
-                        <span>{dayNames[day]}</span>
+                      <div className="flex items-center justify-center gap-0.5 sm:gap-1 whitespace-nowrap flex-nowrap leading-tight">
+                        <span className="whitespace-nowrap">
+                          {daysToShow.length > 3 ? (
+                            <>
+                              <span className="inline sm:hidden">{dayNamesShort[day]}</span>
+                              <span className="hidden sm:inline">{dayNames[day]}</span>
+                            </>
+                          ) : (
+                            dayNames[day]
+                          )}
+                        </span>
                         {isToday && (
-                          <span className="px-1.5 py-0.2 bg-blue-600 text-white rounded text-[10px] font-normal">
+                          <span className="px-1 py-0.5 bg-blue-600 text-white rounded text-[10px] font-medium leading-none whitespace-nowrap shrink-0">
                             오늘
                           </span>
                         )}
@@ -576,9 +598,9 @@ export const Home: React.FC = () => {
             <tbody>
               {periods.map(p => (
                 <tr key={p.period} className="border-b border-gray-50 hover:bg-gray-50/50 transition">
-                  <td className="py-3 px-2 text-center border-r border-gray-100 bg-gray-50/30">
-                    <div className="font-bold text-gray-800 text-sm">{p.period}교시</div>
-                    <div className="text-[11px] text-gray-400">{p.start}~{p.end}</div>
+                  <td className="py-2 px-1 sm:px-2 text-center border-r border-gray-100 bg-gray-50/30 whitespace-nowrap">
+                    <div className="font-bold text-gray-800 text-xs sm:text-sm">{p.period}교시</div>
+                    <div className="text-[10px] sm:text-[11px] text-gray-400 leading-tight mt-0.5">{p.start}~{p.end}</div>
                   </td>
                   {daysToShow.map(day => {
                     const room = selectedTeacher.timetable[day]?.[p.period];
@@ -589,15 +611,15 @@ export const Home: React.FC = () => {
                     return (
                       <td 
                         key={day} 
-                        className={`py-3 px-3 text-center ${
+                        className={`py-2 px-0.5 sm:px-2 text-center ${
                           isToday ? 'bg-blue-50/30' : ''
                         } ${isInvalidPeriod ? 'bg-gray-50/60' : ''}`}
                       >
                         {isInvalidPeriod ? (
                           <span className="text-gray-300 text-xs">-</span>
                         ) : room ? (
-                          <span className="inline-block px-2.5 py-1.5 bg-blue-100 text-blue-800 rounded-lg font-bold text-xs shadow-xs border border-blue-200/60">
-                            {formatClassroom(room)}
+                          <span className="inline-flex items-center justify-center px-1.5 py-1 sm:px-2.5 sm:py-1 bg-blue-100 text-blue-800 rounded-lg font-bold text-xs sm:text-xs shadow-2xs border border-blue-200/70 break-keep-all leading-tight text-center max-w-full">
+                            {formatClassroomShort(room)}
                           </span>
                         ) : (
                           <span className="text-gray-300 text-xs">-</span>

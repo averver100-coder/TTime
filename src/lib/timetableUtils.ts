@@ -24,6 +24,14 @@ export const dayNames: Record<DayOfWeek, string> = {
   Fri: '금요일',
 };
 
+export const dayNamesShort: Record<DayOfWeek, string> = {
+  Mon: '월',
+  Tue: '화',
+  Wed: '수',
+  Thu: '목',
+  Fri: '금',
+};
+
 // Map day index (0=Sun, 1=Mon, ..., 6=Sat) to DayOfWeek
 export const getDayFromIndex = (index: number): DayOfWeek | null => {
   switch (index) {
@@ -66,4 +74,19 @@ export const formatClassroom = (classroomCode: string) => {
     return `${grade}학년 ${classNum}반`;
   }
   return classroomCode;
+};
+
+export const formatClassroomShort = (classroomCode: string) => {
+  if (!classroomCode || classroomCode.trim() === '') return '';
+  const trimmed = classroomCode.trim();
+  if (/^\d{3}$/.test(trimmed)) {
+    const grade = trimmed.charAt(0);
+    const classNum = parseInt(trimmed.substring(1), 10);
+    return `${grade}-${classNum}`;
+  }
+  const match = trimmed.match(/^(\d)학년\s*(\d+)반$/);
+  if (match) {
+    return `${match[1]}-${match[2]}`;
+  }
+  return trimmed;
 };

@@ -1,1 +1,8 @@
 @import "tailwindcss";
+
+@layer base {
+  html, body {
+    word-break: keep-all;
+    overflow-wrap: break-word;
+  }
+}
