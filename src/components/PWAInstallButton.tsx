@@ -10,8 +10,7 @@ import {
   Copy, 
   AlertCircle, 
   Monitor, 
-  Laptop,
-  FolderDown
+  Laptop
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { SchoolLogo } from './SchoolLogo';
@@ -26,15 +25,11 @@ export const PWAInstallButton: React.FC = () => {
     isMac,
     isWhale, 
     install,
-    downloadDesktopShortcut,
-    downloadDesktopShortcutZip,
-    downloadAppIcon,
   } = usePWAInstall();
 
   const [showModal, setShowModal] = useState(false);
   const [showBottomBanner, setShowBottomBanner] = useState(false);
   const [installedToast, setInstalledToast] = useState(false);
-  const [downloadedToast, setDownloadedToast] = useState(false);
   const [copiedToast, setCopiedToast] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
 
@@ -82,49 +77,15 @@ export const PWAInstallButton: React.FC = () => {
         setShowModal(false);
         setInstalledToast(true);
         setTimeout(() => setInstalledToast(false), 5000);
-      } else if (isDesktop) {
-        // On PC: trigger desktop shortcut package (.url + .ico + 1-click batch installer)
-        downloadDesktopShortcutZip();
-        setShowBottomBanner(false);
-        setDownloadedToast(true);
-        setTimeout(() => setDownloadedToast(false), 5000);
       } else {
-        // Mobile fallback guide
+        // Show guidance modal
         setShowModal(true);
       }
     } catch {
-      if (isDesktop) {
-        downloadDesktopShortcutZip();
-        setShowBottomBanner(false);
-        setDownloadedToast(true);
-        setTimeout(() => setDownloadedToast(false), 5000);
-      } else {
-        setShowModal(true);
-      }
+      setShowModal(true);
     } finally {
       setIsInstalling(false);
     }
-  };
-
-  const handleManualDownloadZip = () => {
-    downloadDesktopShortcutZip();
-    setShowBottomBanner(false);
-    setDownloadedToast(true);
-    setTimeout(() => setDownloadedToast(false), 5000);
-  };
-
-  const handleManualDownloadShortcut = () => {
-    downloadDesktopShortcut();
-    setShowBottomBanner(false);
-    setDownloadedToast(true);
-    setTimeout(() => setDownloadedToast(false), 5000);
-  };
-
-  const handleManualDownloadIcon = () => {
-    downloadAppIcon();
-    setShowBottomBanner(false);
-    setDownloadedToast(true);
-    setTimeout(() => setDownloadedToast(false), 5000);
   };
 
   const handleCopyUrl = async () => {
@@ -161,14 +122,6 @@ export const PWAInstallButton: React.FC = () => {
         </div>
       )}
 
-      {/* Desktop Shortcut Downloaded Toast */}
-      {downloadedToast && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-blue-600 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-sm font-bold animate-in fade-in slide-in-from-top-4 duration-300">
-          <FolderDown className="w-5 h-5 shrink-0" />
-          <span>바탕화면 바로가기(.url)와 고화질 아이콘(.ico)이 다운로드되었습니다!</span>
-        </div>
-      )}
-
       {/* Copied Toast */}
       {copiedToast && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-5 py-2.5 rounded-2xl shadow-xl flex items-center gap-2 text-xs font-bold animate-in fade-in slide-in-from-top-4 duration-200">
@@ -202,7 +155,7 @@ export const PWAInstallButton: React.FC = () => {
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <h4 className="text-sm font-bold text-gray-900 truncate">
-                    {isDesktop ? '쌤타임 바탕화면 바로가기 설치' : '쌤타임 앱 홈화면 설치'}
+                    {isDesktop ? '쌤타임 PC 앱 설치' : '쌤타임 앱 홈화면 설치'}
                   </h4>
                   <span className="px-1.5 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-700 rounded-md shrink-0">
                     {isDesktop ? 'PC 앱' : 'PWA'}
@@ -210,7 +163,7 @@ export const PWAInstallButton: React.FC = () => {
                 </div>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {isDesktop 
-                    ? '바로가기(.url)와 고화질 아이콘을 다운로드하여 바탕화면에서 편리하게 확인하세요.' 
+                    ? '크롬/엣지 앱으로 설치하여 바탕화면 아이콘 및 독립 창으로 편리하게 확인하세요.' 
                     : '홈 화면에 추가하여 주소창 없이 앱처럼 편리하게 확인하세요.'}
                 </p>
               </div>
@@ -244,7 +197,7 @@ export const PWAInstallButton: React.FC = () => {
               ) : (
                 <Download className="w-3.5 h-3.5 shrink-0" />
               )}
-              <span>{isIOS ? '설치 방법 안내' : isDesktop ? '바로가기+아이콘 받기' : '지금 앱 설치하기'}</span>
+              <span>{isIOS ? '설치 방법 안내' : isDesktop ? 'PC 앱 설치하기' : '지금 앱 설치하기'}</span>
             </button>
           </div>
         </div>
@@ -262,10 +215,10 @@ export const PWAInstallButton: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-gray-900 leading-tight">
-                    {isDesktop ? 'PC 바탕화면 바로가기 생성' : '쌤타임 앱 설치'}
+                    {isDesktop ? 'PC 쌤타임 앱 설치 안내' : '쌤타임 앱 설치'}
                   </h3>
                   <p className="text-[11px] text-gray-500">
-                    {isDesktop ? '바탕화면에서 1초 만에 바로가기 실행' : '주소표시줄 없는 전체화면 앱'}
+                    {isDesktop ? '브라우저 공식 기능으로 바탕화면에 정식 앱 등록' : '주소표시줄 없는 전체화면 앱'}
                   </p>
                 </div>
               </div>
@@ -283,74 +236,41 @@ export const PWAInstallButton: React.FC = () => {
               {/* PC Desktop Dedicated Experience */}
               {isDesktop ? (
                 <div className="space-y-3.5">
-                  {/* Option 1: Bundled Shortcut Package (Recommended) */}
-                  <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl space-y-2.5">
-                    <div className="flex items-start gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0 mt-0.5">
-                        <FolderDown className="w-4 h-4" />
+                  {/* Browser Native App Installation (Official & Recommended) */}
+                  <div className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50/60 border border-blue-200/80 rounded-2xl space-y-3 shadow-xs">
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                        <Laptop className="w-5 h-5" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
-                          <h4 className="text-xs font-bold text-blue-950">방법 1. 바로가기 + 아이콘 패키지 다운로드</h4>
-                          <span className="px-1.5 py-0.5 bg-blue-600 text-white text-[9px] font-bold rounded">추천</span>
+                          <h4 className="text-sm font-bold text-blue-950">크롬 / 엣지 브라우저에서 공식 앱 설치</h4>
+                          <span className="px-1.5 py-0.5 bg-blue-600 text-white text-[9px] font-bold rounded">권장</span>
                         </div>
-                        <p className="text-[11px] text-blue-800 leading-relaxed mt-0.5">
-                          브라우저 보안으로 파일명이 'download'로 바뀌는 현상을 방지하며, <strong>.url 바로가기 파일</strong>과 <strong>고화질 이미지 아이콘(.ico)</strong>, <strong>[원클릭 설치 실행기]</strong>가 함께 저장됩니다.
+                        <p className="text-xs text-blue-800/90 leading-relaxed mt-1">
+                          보안 경고 없이 <strong>고화질 쌤타임 로고 아이콘이 바탕화면과 시작 메뉴에 정식 앱으로 등록</strong>되며, 주소창 없는 깔끔한 독립 창으로 실행됩니다.
                         </p>
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={handleManualDownloadZip}
-                      className="w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-2 shadow-sm active:scale-98 transition"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>바로가기 + 아이콘 패키지(.zip) 받기</span>
-                    </button>
-
-                    <div className="flex items-center gap-2 pt-1 border-t border-blue-200/60">
-                      <button
-                        type="button"
-                        onClick={handleManualDownloadShortcut}
-                        className="flex-1 py-1.5 px-2 bg-white hover:bg-blue-100/60 text-blue-800 border border-blue-200 rounded-lg text-[11px] font-medium transition text-center"
-                        title=".url 바로가기 파일만 받기"
-                      >
-                        .url 파일만 받기
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleManualDownloadIcon}
-                        className="flex-1 py-1.5 px-2 bg-white hover:bg-blue-100/60 text-blue-800 border border-blue-200 rounded-lg text-[11px] font-medium transition text-center"
-                        title="고화질 아이콘(.ico) 파일만 받기"
-                      >
-                        .ico 아이콘만 받기
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Option 2: Browser Standalone App Install (Chrome/Edge) */}
-                  <div className="p-3.5 bg-gray-50 border border-gray-200 rounded-xl space-y-2 text-xs text-gray-700">
-                    <div className="flex items-center gap-1.5 font-bold text-gray-900">
-                      <Laptop className="w-4 h-4 text-gray-700" />
-                      <span>방법 2. 브라우저 앱(PWA)으로 설치 (권장)</span>
-                    </div>
-                    <p className="text-[11px] text-gray-600 leading-relaxed">
-                      Chrome(크롬) 또는 Edge 브라우저를 이용하시면 브라우저 창 대신 <strong>독립된 앱 창</strong>으로 실행되는 바탕화면 아이콘이 설치됩니다:
-                    </p>
-
-                    <div className="space-y-1.5 pl-1 text-[11px]">
-                      <div className="flex items-start gap-2 bg-white p-2 rounded-lg border border-gray-100">
-                        <span className="w-4 h-4 rounded-full bg-gray-200 text-gray-700 font-bold flex items-center justify-center shrink-0 text-[10px]">1</span>
-                        <span>브라우저 <strong>상단 주소창 우측 끝</strong>의 <strong>[설치]</strong> 아이콘(컴퓨터 모니터 모양) 클릭</span>
+                    <div className="space-y-2 pt-1 text-xs text-gray-700">
+                      <div className="flex items-start gap-2.5 bg-white/95 p-2.5 rounded-xl border border-blue-100/80 shadow-2xs">
+                        <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center shrink-0 text-[11px] mt-0.5">1</span>
+                        <div className="leading-snug">
+                          브라우저 <strong>상단 주소창 우측 끝</strong>의 <strong>[설치] 아이콘(모니터 모양 🖥️)</strong>을 클릭합니다.
+                        </div>
                       </div>
-                      <div className="flex items-start gap-2 bg-white p-2 rounded-lg border border-gray-100">
-                        <span className="w-4 h-4 rounded-full bg-gray-200 text-gray-700 font-bold flex items-center justify-center shrink-0 text-[10px]">2</span>
-                        <span>또는 우측 상단 더보기 <strong>(⋮)</strong> 메뉴 → <strong>[전송, 저장 및 공유]</strong> → <strong>[바로가기 만들기...]</strong> (또는 [앱] → [쌤타임 설치]) 클릭</span>
+                      <div className="flex items-start gap-2.5 bg-white/95 p-2.5 rounded-xl border border-blue-100/80 shadow-2xs">
+                        <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center shrink-0 text-[11px] mt-0.5">2</span>
+                        <div className="leading-snug">
+                          또는 브라우저 우측 상단 더보기 <strong>(⋮)</strong> 메뉴 → <strong>[전송, 저장 및 공유]</strong> (또는 [앱]) → <strong>[쌤타임 설치...]</strong>를 클릭합니다.
+                        </div>
                       </div>
-                      <div className="flex items-start gap-2 bg-white p-2 rounded-lg border border-gray-100">
-                        <span className="w-4 h-4 rounded-full bg-gray-200 text-gray-700 font-bold flex items-center justify-center shrink-0 text-[10px]">3</span>
-                        <span><strong>'창으로 열기'</strong> 체크 후 <strong>[만들기/설치]</strong>를 누르면 바탕화면에 주소창 없는 쌤타임 앱 아이콘이 바로 생성됩니다!</span>
+                      <div className="flex items-start gap-2.5 bg-white/95 p-2.5 rounded-xl border border-blue-100/80 shadow-2xs">
+                        <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center shrink-0 text-[11px] mt-0.5">3</span>
+                        <div className="leading-snug">
+                          확인 창에서 <strong>[설치]</strong> 버튼을 누르면 윈도우 바탕화면과 작업표시줄에 쌤타임 공식 앱이 즉시 생성됩니다!
+                        </div>
                       </div>
                     </div>
 
@@ -365,22 +285,29 @@ export const PWAInstallButton: React.FC = () => {
                             setTimeout(() => setInstalledToast(false), 5000);
                           }
                         }}
-                        className="w-full mt-2 py-2 px-3 bg-gray-800 hover:bg-gray-900 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition"
+                        className="w-full mt-1 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-sm active:scale-98 transition"
                       >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>브라우저 자동 설치 창 띄우기</span>
+                        <Download className="w-4 h-4" />
+                        <span>브라우저 앱 자동 설치 창 띄우기</span>
                       </button>
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={handleCopyUrl}
-                    className="w-full py-2 px-3 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 active:scale-98 transition"
-                  >
-                    <Copy className="w-3.5 h-3.5 text-gray-600" />
-                    <span>현재 웹페이지 주소 복사하기</span>
-                  </button>
+                  {/* Bookmark Shortcut (Ctrl + D) Tip */}
+                  <div className="p-3 bg-gray-50 border border-gray-200/80 rounded-xl flex items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="px-2 py-1 bg-white border border-gray-300 rounded font-mono font-bold text-[11px] text-gray-800 shrink-0">Ctrl + D</span>
+                      <span className="text-gray-600 truncate">북마크바에 등록하여 클릭 한 번으로 이동하기</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCopyUrl}
+                      className="shrink-0 py-1.5 px-3 bg-white hover:bg-gray-100 border border-gray-300 text-gray-700 rounded-lg font-bold text-[11px] flex items-center gap-1.5 transition active:scale-95"
+                    >
+                      <Copy className="w-3.5 h-3.5 text-gray-500" />
+                      <span>주소 복사</span>
+                    </button>
+                  </div>
                 </div>
               ) : isWhale ? (
                 /* Mobile Whale Browser */

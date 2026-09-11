@@ -5,7 +5,6 @@ import path from 'path';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
 import { GoogleGenAI } from '@google/genai';
-import JSZip from 'jszip';
 import { createServer as createViteServer } from 'vite';
 import { parseExcelTimetable } from './server/excelParser.js';
 
@@ -371,90 +370,6 @@ app.get('/manifest.json', (req, res, next) => {
     return res.sendFile(p);
   }
   next();
-});
-
-// Direct desktop internet shortcut (.url) download
-app.get('/api/download-shortcut', (req, res) => {
-  const queryUrl = typeof req.query.url === 'string' ? req.query.url : '';
-  const proto = req.get('x-forwarded-proto') || req.protocol || 'https';
-  const host = req.get('host') || 'localhost:3000';
-  const defaultUrl = `${proto}://${host}/`;
-  const targetUrl = queryUrl && queryUrl.startsWith('http') ? queryUrl : defaultUrl;
-
-  // Standard Windows Internet Shortcut (.url) INI format with icon references
-  const fileContent = `[InternetShortcut]\r\nURL=${targetUrl}\r\nIDList=\r\nIconIndex=0\r\nIconFile=${targetUrl}favicon.ico\r\nHotKey=0\r\n[{000214A0-0000-0000-C000-000000000046}]\r\nProp3=19,0\r\n[InternetShortcut.A]\r\nURL=${targetUrl}\r\n[InternetShortcut.W]\r\nURL=${targetUrl}\r\n`;
-
-  res.setHeader('Content-Type', 'application/x-mswinurl; charset=utf-8');
-  res.setHeader(
-    'Content-Disposition',
-    'attachment; filename="ssamtime.url"; filename*=UTF-8\'\'%EC%8C%A4%ED%83%80%EC%9E%84_%EC%8B%9C%EA%B0%84%ED%91%9C.url'
-  );
-  res.setHeader('Cache-Control', 'no-cache');
-  return res.send(fileContent);
-});
-
-// Direct app icon (.ico) download
-app.get('/api/download-icon', (req, res) => {
-  const iconPath = path.join(process.cwd(), 'public', 'favicon.ico');
-  if (fs.existsSync(iconPath)) {
-    res.setHeader('Content-Type', 'image/x-icon');
-    res.setHeader(
-      'Content-Disposition',
-      'attachment; filename="ssamtime_icon.ico"; filename*=UTF-8\'\'%EC%8C%A4%ED%83%80%EC%9E%84_%EC%95%84%EC%9D%B4%EC%BD%98.ico'
-    );
-    res.setHeader('Cache-Control', 'no-cache');
-    return res.sendFile(iconPath);
-  }
-  return res.status(404).send('Icon not found');
-});
-
-// Bundled shortcut ZIP package containing .url + .ico + 1-click batch installer
-app.get('/api/download-shortcut-zip', async (req, res) => {
-  try {
-    const queryUrl = typeof req.query.url === 'string' ? req.query.url : '';
-    const proto = req.get('x-forwarded-proto') || req.protocol || 'https';
-    const host = req.get('host') || 'localhost:3000';
-    const defaultUrl = `${proto}://${host}/`;
-    const targetUrl = queryUrl && queryUrl.startsWith('http') ? queryUrl : defaultUrl;
-
-    const zip = new JSZip();
-
-    // 1. .url Internet Shortcut file
-    const urlContent = `[InternetShortcut]\r\nURL=${targetUrl}\r\nIDList=\r\nIconIndex=0\r\nIconFile=${targetUrl}favicon.ico\r\nHotKey=0\r\n[{000214A0-0000-0000-C000-000000000046}]\r\nProp3=19,0\r\n[InternetShortcut.A]\r\nURL=${targetUrl}\r\n[InternetShortcut.W]\r\nURL=${targetUrl}\r\n`;
-    zip.file('쌤타임_시간표.url', urlContent);
-
-    // 2. Windows Icon (.ico) file
-    const iconPath = path.join(process.cwd(), 'public', 'favicon.ico');
-    if (fs.existsSync(iconPath)) {
-      const icoBuf = fs.readFileSync(iconPath);
-      zip.file('쌤타임_아이콘.ico', icoBuf);
-    }
-
-    // 3. 1-Click Windows shortcut installer batch script
-    const batContent = `@echo off\r\nchcp 65001 >nul\r\ntitle 쌤타임 - 바탕화면 바로가기 등록\r\necho ========================================================\r\necho        상일미디어고등학교 [쌤타임] 시간표\r\necho        바탕화면에 바로가기 및 아이콘을 등록합니다.\r\necho ========================================================\r\necho.\r\necho 바탕화면에 바로가기 복사 중...\r\n\r\nset "DESKTOP=%USERPROFILE%\\Desktop"\r\nset "SRC=%~dp0"\r\n\r\ncopy /Y "%SRC%쌤타임_시간표.url" "%DESKTOP%\\" >nul\r\ncopy /Y "%SRC%쌤타임_아이콘.ico" "%DESKTOP%\\" >nul\r\n\r\necho.\r\necho [설치 완료!] 바탕화면에 '쌤타임_시간표' 바로가기가 생성되었습니다.\r\necho 바탕화면의 아이콘을 더블 클릭하여 편리하게 시간표를 확인하세요!\r\necho.\r\necho 3초 후 창이 자동으로 닫힙니다.\r\ntimeout /t 3 >nul\r\n`;
-    zip.file('[원클릭] 바탕화면에 바로가기 생성.cmd', batContent);
-
-    // 4. Korean instruction text file
-    const readmeContent = `[상일미디어고등학교 쌤타임 - 바탕화면 바로가기 설치 안내]\r\n\r\n1. 본 압축 파일 내의 '[원클릭] 바탕화면에 바로가기 생성.cmd' 파일을 더블 클릭하시면\r\n   바탕화면에 '쌤타임_시간표' 바로가기 및 아이콘이 자동으로 생성됩니다.\r\n\r\n2. 또는 '쌤타임_시간표.url' 파일과 '쌤타임_아이콘.ico' 파일을 마우스로 끌어서\r\n   바탕화면에 직접 복사하셔도 언제든 아이콘 클릭 한 번으로 바로 접속하실 수 있습니다.\r\n\r\n* 쌤타임 시간표 주소: ${targetUrl}\r\n`;
-    zip.file('설치안내.txt', readmeContent);
-
-    const zipBuffer = await zip.generateAsync({
-      type: 'nodebuffer',
-      compression: 'DEFLATE',
-      compressionOptions: { level: 6 }
-    });
-
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader(
-      'Content-Disposition',
-      'attachment; filename="ssamtime_shortcut.zip"; filename*=UTF-8\'\'%EC%8C%A4%ED%83%80%EC%9E%84_%EB%B0%94%ED%83%95%ED%99%94%EB%A9%B4_%EB%B0%94%EB%A1%9C%EA%B0%80%EA%B8%B0.zip'
-    );
-    res.setHeader('Cache-Control', 'no-cache');
-    return res.send(zipBuffer);
-  } catch (err) {
-    console.error('Failed to generate shortcut zip:', err);
-    return res.status(500).send('ZIP creation failed');
-  }
 });
 
 async function startServer() {

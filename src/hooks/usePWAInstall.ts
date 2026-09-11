@@ -140,72 +140,6 @@ export function usePWAInstall() {
     }
   }, []);
 
-  const downloadDesktopShortcutZip = useCallback((): boolean => {
-    try {
-      const currentUrl = typeof window !== 'undefined' ? (window.location.origin || window.location.href) : '';
-      const downloadEndpoint = `/api/download-shortcut-zip?url=${encodeURIComponent(currentUrl)}`;
-
-      const a = document.createElement('a');
-      a.href = downloadEndpoint;
-      a.setAttribute('download', '쌤타임_바탕화면_바로가기.zip');
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        if (document.body.contains(a)) {
-          document.body.removeChild(a);
-        }
-      }, 1000);
-      return true;
-    } catch (e) {
-      console.error('Failed to download desktop shortcut zip:', e);
-      return false;
-    }
-  }, []);
-
-  const downloadAppIcon = useCallback((): boolean => {
-    try {
-      const a = document.createElement('a');
-      a.href = '/api/download-icon';
-      a.setAttribute('download', '쌤타임_아이콘.ico');
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        if (document.body.contains(a)) {
-          document.body.removeChild(a);
-        }
-      }, 1000);
-      return true;
-    } catch (e) {
-      console.error('Failed to download app icon:', e);
-      return false;
-    }
-  }, []);
-
-  const downloadDesktopShortcut = useCallback((): boolean => {
-    try {
-      const currentUrl = typeof window !== 'undefined' ? (window.location.origin || window.location.href) : '';
-      const downloadEndpoint = `/api/download-shortcut?url=${encodeURIComponent(currentUrl)}`;
-
-      const a = document.createElement('a');
-      a.href = downloadEndpoint;
-      a.setAttribute('download', '쌤타임_시간표.url');
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        if (document.body.contains(a)) {
-          document.body.removeChild(a);
-        }
-      }, 1000);
-      return true;
-    } catch (e) {
-      console.error('Failed to download desktop shortcut:', e);
-      return false;
-    }
-  }, []);
-
   return {
     deferredPrompt,
     isInstallable: !!deferredPrompt || !!(typeof window !== 'undefined' && window.__pwaInstallPrompt),
@@ -219,8 +153,5 @@ export function usePWAInstall() {
     isSamsung,
     isChrome,
     install,
-    downloadDesktopShortcut,
-    downloadDesktopShortcutZip,
-    downloadAppIcon,
   };
 }
