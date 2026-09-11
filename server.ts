@@ -332,6 +332,24 @@ app.post('/api/teachers', (req, res) => {
 app.post('/api/parse-timetable', upload.single('file'), handleTimetableParse);
 app.post('/api/parse-timetable-pdf', upload.single('file'), handleTimetableParse);
 
+app.get('/manifest.webmanifest', (req, res, next) => {
+  const p = path.join(process.cwd(), 'public', 'manifest.webmanifest');
+  if (fs.existsSync(p)) {
+    res.setHeader('Content-Type', 'application/manifest+json');
+    return res.sendFile(p);
+  }
+  next();
+});
+
+app.get('/manifest.json', (req, res, next) => {
+  const p = path.join(process.cwd(), 'public', 'manifest.json');
+  if (fs.existsSync(p)) {
+    res.setHeader('Content-Type', 'application/manifest+json');
+    return res.sendFile(p);
+  }
+  next();
+});
+
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
