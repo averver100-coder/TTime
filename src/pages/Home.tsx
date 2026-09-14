@@ -28,21 +28,14 @@ import {
   parseTimeString, 
   periods, 
   formatClassroom,
-  formatClassroomShort 
+  formatClassroomShort,
+  KOREAN_CONSONANTS,
+  getInitialConsonant,
+  getChosung,
+  matchKorean
 } from '../lib/timetableUtils';
 
 const ALL_WEEKDAYS: DayOfWeek[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-
-// Korean consonant helper for directory (Standard order)
-const KOREAN_CONSONANTS = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
-
-const getInitialConsonant = (char: string): string => {
-  if (!char) return '#';
-  const code = char.charCodeAt(0) - 44032;
-  if (code < 0 || code > 11171) return '#';
-  const initialIndex = Math.floor(code / 588);
-  return KOREAN_CONSONANTS[initialIndex] || '#';
-};
 
 export const Home: React.FC = () => {
   const [teachers, setTeachers] = useState<Teacher[]>(() => getDefaultTeachers());
@@ -115,14 +108,42 @@ export const Home: React.FC = () => {
   }, [teachers]);
 
   const filteredTeachers = useMemo(() => {
-    const trimmed = query.trim().toLowerCase();
+    const trimmed = query.trim();
     if (!trimmed) return [];
+
+    const isChosungOnly = /^[ㄱ-ㅎ\s]+$/.test(trimmed);
+    const trimmedClean = trimmed.replace(/\s+/g, '');
+
     return teachers
-      .filter(t => t.name.toLowerCase().includes(trimmed))
+      .filter(t => {
+        if (isChosungOnly) {
+          const nameChosung = getChosung(t.name);
+          return nameChosung.includes(trimmedClean);
+        }
+
+        const nameMatches = matchKorean(t.name, trimmed);
+        const homeroomMatches = (t.homeroom || '').toLowerCase().includes(trimmed.toLowerCase()) ||
+          `${t.homeroom}반`.includes(trimmed);
+        return nameMatches || homeroomMatches;
+      })
       .sort((a, b) => {
-        const aExact = a.name.toLowerCase() === trimmed ? 0 : 1;
-        const bExact = b.name.toLowerCase() === trimmed ? 0 : 1;
+        // 1. Exact name match
+        const aExact = a.name.toLowerCase() === trimmed.toLowerCase() ? 0 : 1;
+        const bExact = b.name.toLowerCase() === trimmed.toLowerCase() ? 0 : 1;
         if (aExact !== bExact) return aExact - bExact;
+
+        // 2. Exact chosung match
+        const aChosung = getChosung(a.name);
+        const bChosung = getChosung(b.name);
+        const aChosungExact = aChosung === trimmedClean ? 0 : 1;
+        const bChosungExact = bChosung === trimmedClean ? 0 : 1;
+        if (aChosungExact !== bChosungExact) return aChosungExact - bChosungExact;
+
+        // 3. Name or chosung starts with query
+        const aStarts = a.name.toLowerCase().startsWith(trimmed.toLowerCase()) || aChosung.startsWith(trimmedClean) ? 0 : 1;
+        const bStarts = b.name.toLowerCase().startsWith(trimmed.toLowerCase()) || bChosung.startsWith(trimmedClean) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+
         return a.name.localeCompare(b.name, 'ko');
       });
   }, [query, teachers]);
@@ -141,7 +162,11 @@ export const Home: React.FC = () => {
     if (!trimmed) return;
 
     if (filteredTeachers.length > 0) {
-      const exact = filteredTeachers.find(t => t.name.toLowerCase() === trimmed.toLowerCase()) || filteredTeachers[0];
+      const trimmedClean = trimmed.replace(/\s+/g, '');
+      const exact = filteredTeachers.find(t => 
+        t.name.toLowerCase() === trimmed.toLowerCase() ||
+        getChosung(t.name) === trimmedClean
+      ) || filteredTeachers[0];
       handleSelectTeacher(exact);
     } else {
       setIsDropdownOpen(false);
@@ -695,7 +720,7 @@ export const Home: React.FC = () => {
               ref={searchInputRef}
               type="text"
               className="block w-full pl-11 pr-24 py-3.5 bg-white border border-gray-200 rounded-2xl text-base shadow-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-              placeholder="선생님 성함 입력 (자동 추천)"
+              placeholder="선생님 성함 또는 초성 검색 (예: 김가영, ㄱㄱㅇ)"
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
@@ -740,6 +765,9 @@ export const Home: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-gray-800 group-hover:text-blue-600 transition text-base">
                         {t.name}
+                      </span>
+                      <span className="text-[11px] font-mono text-gray-400 bg-gray-100 group-hover:bg-blue-100/80 group-hover:text-blue-700 px-1.5 py-0.5 rounded transition">
+                        {getChosung(t.name)}
                       </span>
                       <span className="text-xs text-gray-500">선생님</span>
                     </div>

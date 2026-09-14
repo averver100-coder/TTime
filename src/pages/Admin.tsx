@@ -1,25 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, Trash2, ArrowLeft, Eye, EyeOff, KeyRound, UserPlus, Edit3, X, Check, User, Crown, Shield, LogOut, Search, Download, RotateCcw, ShieldCheck, History, FileDown } from 'lucide-react';
+import { Upload, Trash2, ArrowLeft, Eye, EyeOff, KeyRound, UserPlus, Edit3, X, Check, User, Crown, Shield, LogOut, Search, Download, RotateCcw, ShieldCheck, History, FileDown, FileSpreadsheet } from 'lucide-react';
 import { SchoolLogo } from '../components/SchoolLogo';
-import { Teacher, DayOfWeek, dayNames, periods } from '../lib/timetableUtils';
+import { Teacher, DayOfWeek, dayNames, periods, KOREAN_CONSONANTS, getChosung, matchKorean } from '../lib/timetableUtils';
 import { fetchTeachers, saveSingleTeacher, deleteSingleTeacher, resetAndUploadTeachers, verifyAdmin, updateAdminPassword, AdminUser, fetchBackups, createManualBackup, restoreBackup, BackupItem } from '../lib/store';
-
-// Korean consonant helper for search (Chosung search support)
-const KOREAN_CONSONANTS = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
-
-const getChosung = (str: string): string => {
-  let chosung = '';
-  for (let i = 0; i < str.length; i++) {
-    const code = str.charCodeAt(i) - 44032;
-    if (code >= 0 && code <= 11171) {
-      chosung += KOREAN_CONSONANTS[Math.floor(code / 588)];
-    } else {
-      chosung += str.charAt(i);
-    }
-  }
-  return chosung;
-};
+import { exportTimetableToExcel } from '../lib/excelExport';
 
 const getTeacherTotalPeriods = (teacher: Teacher): number => {
   let count = 0;
@@ -289,6 +274,21 @@ export const Admin: React.FC = () => {
     }
   };
 
+  const handleDownloadExcel = () => {
+    if (teachers.length === 0) {
+      window.alert('다운로드할 선생님 시간표 데이터가 없습니다.');
+      return;
+    }
+    try {
+      exportTimetableToExcel(teachers, '상상고등학교');
+      setMessage(`총 ${teachers.length}명의 시간표가 엑셀(.xlsx) 파일로 다운로드되었습니다.`);
+    } catch (err) {
+      console.error('Excel download failed:', err);
+      setMessage('엑셀 다운로드 중 오류가 발생했습니다.');
+      window.alert('엑셀 파일 생성 중 오류가 발생했습니다.');
+    }
+  };
+
   const handleDownloadJsonBackup = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(teachers, null, 2));
     const downloadAnchor = document.createElement('a');
@@ -531,6 +531,17 @@ export const Admin: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={handleDownloadExcel}
+                disabled={loading || teachers.length === 0}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition active:scale-95"
+                title="현재 등록된 모든 선생님 시간표를 엑셀(.xlsx) 파일로 다운로드합니다 (종합시간표 + 수업상세목록)"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
+                시간표 엑셀 다운로드 (.xlsx)
+              </button>
+
               <button
                 type="button"
                 onClick={handleDownloadJsonBackup}

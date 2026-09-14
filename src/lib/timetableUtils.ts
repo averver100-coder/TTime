@@ -90,3 +90,67 @@ export const formatClassroomShort = (classroomCode: string) => {
   }
   return trimmed;
 };
+
+// Korean initial consonants (19 초성)
+export const KOREAN_CONSONANTS = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+
+export const getInitialConsonant = (char: string): string => {
+  if (!char) return '#';
+  const code = char.charCodeAt(0) - 44032;
+  if (code < 0 || code > 11171) return '#';
+  const initialIndex = Math.floor(code / 588);
+  return KOREAN_CONSONANTS[initialIndex] || '#';
+};
+
+export const getChosungChar = (ch: string): string => {
+  if (!ch) return '';
+  const code = ch.charCodeAt(0) - 44032;
+  if (code >= 0 && code <= 11171) {
+    return KOREAN_CONSONANTS[Math.floor(code / 588)];
+  }
+  return ch;
+};
+
+export const getChosung = (str: string): string => {
+  if (!str) return '';
+  return Array.from(str).map(getChosungChar).join('');
+};
+
+/**
+ * Searches a target string with full Korean Hangul and Chosung support.
+ * Supports:
+ * - Direct substring (e.g. "김가", "김가영")
+ * - Pure Chosung substring (e.g. "ㄱㄱㅇ", "ㄱㄱ")
+ * - Mixed partial Chosung (e.g. "김ㄱ", "ㄱ가")
+ */
+export const matchKorean = (target: string, query: string): boolean => {
+  const t = (target || '').toLowerCase().replace(/\s+/g, '');
+  const q = (query || '').toLowerCase().replace(/\s+/g, '');
+  if (!q) return false;
+  if (t.includes(q)) return true;
+
+  if (t.length < q.length) return false;
+
+  for (let i = 0; i <= t.length - q.length; i++) {
+    let matches = true;
+    for (let j = 0; j < q.length; j++) {
+      const qChar = q[j];
+      const tChar = t[i + j];
+      const isQChosung = KOREAN_CONSONANTS.includes(qChar);
+
+      if (isQChosung) {
+        if (getChosungChar(tChar) !== qChar) {
+          matches = false;
+          break;
+        }
+      } else {
+        if (tChar !== qChar) {
+          matches = false;
+          break;
+        }
+      }
+    }
+    if (matches) return true;
+  }
+  return false;
+};
