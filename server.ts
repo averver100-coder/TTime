@@ -303,6 +303,57 @@ ${combinedSheetsText.slice(0, 100000)}
   }
 };
 
+// Helper to create timestamped backups
+const BACKUP_DIR = path.join(process.cwd(), 'src', 'data', 'backups');
+function ensureBackupDir() {
+  if (!fs.existsSync(BACKUP_DIR)) {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  }
+}
+
+function createTeacherBackup(teachers: any[], reason: string = 'manual') {
+  try {
+    if (!Array.isArray(teachers) || teachers.length === 0) return null;
+    ensureBackupDir();
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `backup_${timestamp}_${teachers.length}teachers_${reason}.json`;
+    const filePath = path.join(BACKUP_DIR, filename);
+    fs.writeFileSync(filePath, JSON.stringify(teachers, null, 2), 'utf-8');
+
+    // Keep only the most recent 25 backups
+    const files = fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.startsWith('backup_') && f.endsWith('.json'))
+      .map(f => ({
+        name: f,
+        time: fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs
+      }))
+      .sort((a, b) => b.time - a.time);
+
+    if (files.length > 25) {
+      for (const oldFile of files.slice(25)) {
+        try {
+          fs.unlinkSync(path.join(BACKUP_DIR, oldFile.name));
+        } catch {}
+      }
+    }
+    return filename;
+  } catch (err) {
+    console.warn('[Backup] Failed to create teacher backup:', err);
+    return null;
+  }
+}
+
+// Initial safety backup of current 67 teachers on server load
+try {
+  const currentPath = path.join(process.cwd(), 'src', 'data', 'defaultTeachers.json');
+  if (fs.existsSync(currentPath)) {
+    const data = JSON.parse(fs.readFileSync(currentPath, 'utf-8'));
+    if (Array.isArray(data) && data.length > 0) {
+      createTeacherBackup(data, 'server_boot');
+    }
+  }
+} catch {}
+
 app.get('/api/teachers', (req, res) => {
   try {
     const filePath = path.join(process.cwd(), 'src', 'data', 'defaultTeachers.json');
@@ -317,15 +368,187 @@ app.get('/api/teachers', (req, res) => {
   }
 });
 
+// Single teacher upsert (preserves all other teachers safely)
+app.post('/api/teachers/single', (req, res) => {
+  try {
+    const { teacher } = req.body;
+    if (!teacher || !teacher.name) {
+      return res.status(400).json({ error: '유효한 선생님 정보가 필요합니다.' });
+    }
+
+    const filePath = path.join(process.cwd(), 'src', 'data', 'defaultTeachers.json');
+    let currentTeachers: any[] = [];
+    if (fs.existsSync(filePath)) {
+      try {
+        currentTeachers = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      } catch {
+        currentTeachers = [];
+      }
+    }
+
+    // Backup before modification
+    if (currentTeachers.length > 0) {
+      createTeacherBackup(currentTeachers, `before_edit_${encodeURIComponent(teacher.name).slice(0, 10)}`);
+    }
+
+    // Upsert teacher
+    const idx = currentTeachers.findIndex(t => t.name === teacher.name);
+    if (idx !== -1) {
+      currentTeachers[idx] = teacher;
+    } else {
+      currentTeachers.push(teacher);
+    }
+
+    currentTeachers.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    fs.writeFileSync(filePath, JSON.stringify(currentTeachers, null, 2), 'utf-8');
+    createTeacherBackup(currentTeachers, `after_edit_${encodeURIComponent(teacher.name).slice(0, 10)}`);
+
+    return res.json({ success: true, teacherCount: currentTeachers.length, teacher });
+  } catch (err) {
+    console.error('Error upserting single teacher:', err);
+    return res.status(500).json({ error: '선생님 데이터 저장에 실패했습니다.' });
+  }
+});
+
+// Single teacher delete
+app.delete('/api/teachers/:name', (req, res) => {
+  try {
+    const teacherName = decodeURIComponent(req.params.name);
+    const filePath = path.join(process.cwd(), 'src', 'data', 'defaultTeachers.json');
+    let currentTeachers: any[] = [];
+    if (fs.existsSync(filePath)) {
+      try {
+        currentTeachers = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      } catch {
+        currentTeachers = [];
+      }
+    }
+
+    if (currentTeachers.length > 0) {
+      createTeacherBackup(currentTeachers, `before_delete_${encodeURIComponent(teacherName).slice(0, 10)}`);
+    }
+
+    const filtered = currentTeachers.filter(t => t.name !== teacherName);
+    fs.writeFileSync(filePath, JSON.stringify(filtered, null, 2), 'utf-8');
+    createTeacherBackup(filtered, `after_delete_${encodeURIComponent(teacherName).slice(0, 10)}`);
+
+    return res.json({ success: true, teacherCount: filtered.length });
+  } catch (err) {
+    console.error('Error deleting single teacher:', err);
+    return res.status(500).json({ error: '선생님 삭제에 실패했습니다.' });
+  }
+});
+
+// Bulk teachers update (with mandatory safety backup)
 app.post('/api/teachers', (req, res) => {
   try {
     const teachers = req.body;
+    if (!Array.isArray(teachers)) {
+      return res.status(400).json({ error: '선생님 목록 배열이 필요합니다.' });
+    }
+
     const filePath = path.join(process.cwd(), 'src', 'data', 'defaultTeachers.json');
-    fs.writeFileSync(filePath, JSON.stringify(teachers, null, 2), 'utf-8');
-    return res.json({ success: true });
+    if (fs.existsSync(filePath)) {
+      try {
+        const existing = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        if (Array.isArray(existing) && existing.length > 0) {
+          createTeacherBackup(existing, `before_bulk_update`);
+        }
+      } catch {}
+    }
+
+    const sorted = [...teachers].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    fs.writeFileSync(filePath, JSON.stringify(sorted, null, 2), 'utf-8');
+    createTeacherBackup(sorted, `after_bulk_update`);
+
+    return res.json({ success: true, teacherCount: sorted.length });
   } catch (err) {
     console.error('Error saving teachers:', err);
     return res.status(500).json({ error: 'Failed to save teachers' });
+  }
+});
+
+// Backup endpoints
+app.get('/api/backups', (req, res) => {
+  try {
+    ensureBackupDir();
+    const files = fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.startsWith('backup_') && f.endsWith('.json'))
+      .map(f => {
+        const fullPath = path.join(BACKUP_DIR, f);
+        const stat = fs.statSync(fullPath);
+        let teacherCount = 0;
+        try {
+          const parsed = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+          teacherCount = Array.isArray(parsed) ? parsed.length : 0;
+        } catch {}
+        return {
+          filename: f,
+          createdAt: stat.mtime.toISOString(),
+          size: stat.size,
+          teacherCount,
+        };
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return res.json(files);
+  } catch (err) {
+    console.error('Error listing backups:', err);
+    return res.status(500).json({ error: '백업 목록을 불러올 수 없습니다.' });
+  }
+});
+
+app.post('/api/backups/create', (req, res) => {
+  try {
+    const filePath = path.join(process.cwd(), 'src', 'data', 'defaultTeachers.json');
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: '시간표 데이터가 없습니다.' });
+    }
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    const filename = createTeacherBackup(data, 'manual_snapshot');
+    return res.json({ success: true, filename, teacherCount: data.length });
+  } catch (err) {
+    console.error('Error creating manual backup:', err);
+    return res.status(500).json({ error: '백업 생성에 실패했습니다.' });
+  }
+});
+
+app.post('/api/backups/restore', (req, res) => {
+  try {
+    const { filename } = req.body;
+    if (!filename || typeof filename !== 'string') {
+      return res.status(400).json({ error: '복원할 백업 파일명이 필요합니다.' });
+    }
+
+    // Sanitize filename
+    const safeName = path.basename(filename);
+    const backupPath = path.join(BACKUP_DIR, safeName);
+    if (!fs.existsSync(backupPath)) {
+      return res.status(404).json({ error: '해당 백업 파일을 찾을 수 없습니다.' });
+    }
+
+    const backupData = JSON.parse(fs.readFileSync(backupPath, 'utf-8'));
+    if (!Array.isArray(backupData)) {
+      return res.status(400).json({ error: '올바른 백업 데이터 형식이 아닙니다.' });
+    }
+
+    // Save current before restoring
+    const currentPath = path.join(process.cwd(), 'src', 'data', 'defaultTeachers.json');
+    if (fs.existsSync(currentPath)) {
+      try {
+        const currentData = JSON.parse(fs.readFileSync(currentPath, 'utf-8'));
+        createTeacherBackup(currentData, 'before_restore');
+      } catch {}
+    }
+
+    const sorted = [...backupData].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    fs.writeFileSync(currentPath, JSON.stringify(sorted, null, 2), 'utf-8');
+    createTeacherBackup(sorted, 'after_restore');
+
+    return res.json({ success: true, teachers: sorted, teacherCount: sorted.length });
+  } catch (err) {
+    console.error('Error restoring backup:', err);
+    return res.status(500).json({ error: '백업 복원에 실패했습니다.' });
   }
 });
 
