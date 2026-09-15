@@ -17,5 +17,9 @@ service cloud.firestore {
     match /admin/{docId} {
       allow read, write: if true;
     }
+
+    match /gateDuties/{dutyId} {
+      allow read, write: if true;
+    }
   }
 }

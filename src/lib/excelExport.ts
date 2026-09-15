@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { Teacher, formatClassroomShort } from './timetableUtils';
 
-export function exportTimetableToExcel(teachers: Teacher[], schoolName: string = '상상고등학교') {
+export function exportTimetableToExcel(teachers: Teacher[], customFilename: string = '상일미디어고등학교 수업시간표.xlsx') {
   const wb = XLSX.utils.book_new();
 
   const days: Array<{ key: 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri'; name: string; maxPeriod: number }> = [
@@ -104,7 +104,6 @@ export function exportTimetableToExcel(teachers: Teacher[], schoolName: string =
   XLSX.utils.book_append_sheet(wb, wsDetail, '수업_상세목록');
 
   // Trigger download directly in browser
-  const dateStr = new Date().toISOString().split('T')[0];
-  const filename = `${schoolName}_시간표_${sortedTeachers.length}명_${dateStr}.xlsx`;
+  const filename = customFilename.endsWith('.xlsx') ? customFilename : `${customFilename}.xlsx`;
   XLSX.writeFile(wb, filename);
 }

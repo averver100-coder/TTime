@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Upload, Trash2, ArrowLeft, Eye, EyeOff, KeyRound, UserPlus, Edit3, X, Check, User, Crown, Shield, LogOut, Search, Download, RotateCcw, ShieldCheck, History, FileDown, FileSpreadsheet } from 'lucide-react';
 import { SchoolLogo } from '../components/SchoolLogo';
+import { AdminGateDutyManager } from '../components/AdminGateDutyManager';
 import { Teacher, DayOfWeek, dayNames, periods, KOREAN_CONSONANTS, getChosung, matchKorean } from '../lib/timetableUtils';
 import { fetchTeachers, saveSingleTeacher, deleteSingleTeacher, resetAndUploadTeachers, verifyAdmin, updateAdminPassword, AdminUser, fetchBackups, createManualBackup, restoreBackup, BackupItem } from '../lib/store';
 import { exportTimetableToExcel } from '../lib/excelExport';
@@ -280,8 +281,8 @@ export const Admin: React.FC = () => {
       return;
     }
     try {
-      exportTimetableToExcel(teachers, '상상고등학교');
-      setMessage(`총 ${teachers.length}명의 시간표가 엑셀(.xlsx) 파일로 다운로드되었습니다.`);
+      exportTimetableToExcel(teachers, '상일미디어고등학교 수업시간표.xlsx');
+      setMessage(`총 ${teachers.length}명의 시간표가 "상일미디어고등학교 수업시간표.xlsx" 파일로 다운로드되었습니다.`);
     } catch (err) {
       console.error('Excel download failed:', err);
       setMessage('엑셀 다운로드 중 오류가 발생했습니다.');
@@ -294,7 +295,7 @@ export const Admin: React.FC = () => {
     const downloadAnchor = document.createElement('a');
     const dateStr = new Date().toISOString().split('T')[0];
     downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `상상고_선생님시간표_${teachers.length}명_${dateStr}.json`);
+    downloadAnchor.setAttribute("download", `상일미디어고등학교_시간표_${teachers.length}명_${dateStr}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -576,6 +577,9 @@ export const Admin: React.FC = () => {
               </button>
             </div>
           </section>
+
+          {/* Monthly Gate Duty Management & Excel Upload Section */}
+          <AdminGateDutyManager teachers={teachers} onMessage={setMessage} />
 
           <hr className="border-gray-100" />
 

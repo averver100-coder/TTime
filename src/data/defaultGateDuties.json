@@ -1,0 +1,29 @@
+{
+  "yearMonth": "2026-09",
+  "year": 2026,
+  "month": 9,
+  "title": "2026년 9월 교문지도",
+  "updatedAt": "2026-09-14T00:00:00.000Z",
+  "duties": [
+    { "id": "2026-09-01", "date": "2026-09-01", "month": 9, "day": 1, "dayOfWeek": "화요일", "teachers": ["최지수", "조현민"], "note": "" },
+    { "id": "2026-09-02", "date": "2026-09-02", "month": 9, "day": 2, "dayOfWeek": "수요일", "teachers": ["김성훈", "류태상"], "note": "" },
+    { "id": "2026-09-03", "date": "2026-09-03", "month": 9, "day": 3, "dayOfWeek": "목요일", "teachers": ["윤필상", "이다현"], "note": "" },
+    { "id": "2026-09-04", "date": "2026-09-04", "month": 9, "day": 4, "dayOfWeek": "금요일", "teachers": ["오유진(정보)", "이원종"], "note": "" },
+    { "id": "2026-09-07", "date": "2026-09-07", "month": 9, "day": 7, "dayOfWeek": "월요일", "teachers": ["정수현", "홍나영"], "note": "" },
+    { "id": "2026-09-08", "date": "2026-09-08", "month": 9, "day": 8, "dayOfWeek": "화요일", "teachers": ["이정천", "박원중"], "note": "" },
+    { "id": "2026-09-09", "date": "2026-09-09", "month": 9, "day": 9, "dayOfWeek": "수요일", "teachers": ["장미정", "정선이"], "note": "" },
+    { "id": "2026-09-10", "date": "2026-09-10", "month": 9, "day": 10, "dayOfWeek": "목요일", "teachers": ["김호림", "박 건"], "note": "" },
+    { "id": "2026-09-11", "date": "2026-09-11", "month": 9, "day": 11, "dayOfWeek": "금요일", "teachers": ["이용수", "이지용"], "note": "" },
+    { "id": "2026-09-14", "date": "2026-09-14", "month": 9, "day": 14, "dayOfWeek": "월요일", "teachers": ["우현정", "김우남"], "note": "" },
+    { "id": "2026-09-15", "date": "2026-09-15", "month": 9, "day": 15, "dayOfWeek": "화요일", "teachers": ["김영석", "위혜선"], "note": "" },
+    { "id": "2026-09-16", "date": "2026-09-16", "month": 9, "day": 16, "dayOfWeek": "수요일", "teachers": ["김성현", "오인애"], "note": "" },
+    { "id": "2026-09-17", "date": "2026-09-17", "month": 9, "day": 17, "dayOfWeek": "목요일", "teachers": ["양지희", "김창희"], "note": "" },
+    { "id": "2026-09-18", "date": "2026-09-18", "month": 9, "day": 18, "dayOfWeek": "금요일", "teachers": ["윤성웅", "윤춘삼"], "note": "" },
+    { "id": "2026-09-21", "date": "2026-09-21", "month": 9, "day": 21, "dayOfWeek": "월요일", "teachers": ["최경대", "유미아"], "note": "" },
+    { "id": "2026-09-22", "date": "2026-09-22", "month": 9, "day": 22, "dayOfWeek": "화요일", "teachers": ["김가영", "최민진"], "note": "" },
+    { "id": "2026-09-23", "date": "2026-09-23", "month": 9, "day": 23, "dayOfWeek": "수요일", "teachers": ["홍석범", "박가희"], "note": "" },
+    { "id": "2026-09-28", "date": "2026-09-28", "month": 9, "day": 28, "dayOfWeek": "월요일", "teachers": ["현창기", "노명래"], "note": "중간고사" },
+    { "id": "2026-09-29", "date": "2026-09-29", "month": 9, "day": 29, "dayOfWeek": "화요일", "teachers": ["현창기", "노명래"], "note": "중간고사" },
+    { "id": "2026-09-30", "date": "2026-09-30", "month": 9, "day": 30, "dayOfWeek": "수요일", "teachers": ["현창기", "노명래"], "note": "중간고사" }
+  ]
+}

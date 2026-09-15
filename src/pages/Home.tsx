@@ -13,10 +13,12 @@ import {
   BookOpen,
   Coffee,
   CalendarCheck,
-  ListFilter
+  ListFilter,
+  Home as HomeIcon
 } from 'lucide-react';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { SchoolLogo } from '../components/SchoolLogo';
+import { TodayGateDuty } from '../components/TodayGateDuty';
 import { fetchTeachers, getDefaultTeachers } from '../lib/store';
 import { 
   Teacher, 
@@ -83,6 +85,9 @@ export const Home: React.FC = () => {
   }, []);
 
   const handleLogoClick = () => {
+    if (selectedTeacher || query) {
+      handleClear();
+    }
     const newClicks = logoClicks + 1;
     setLogoClicks(newClicks);
     if (newClicks === 5) {
@@ -679,6 +684,17 @@ export const Home: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {(selectedTeacher || query) && (
+              <button
+                type="button"
+                onClick={handleClear}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl border border-blue-200/80 transition shadow-2xs active:scale-95"
+                title="첫화면으로 이동 (오늘의 교문지도 보기)"
+              >
+                <HomeIcon className="w-3.5 h-3.5 text-blue-600" />
+                <span>홈으로</span>
+              </button>
+            )}
             <PWAInstallButton />
             <button 
               onClick={() => navigate('/admin')}
@@ -809,12 +825,27 @@ export const Home: React.FC = () => {
                   </p>
                 </div>
 
-                <button
-                  onClick={handleClear}
-                  className="self-start sm:self-auto text-xs font-semibold text-gray-500 hover:text-blue-600 bg-gray-50 hover:bg-blue-50 px-3 py-1.5 rounded-lg border border-gray-200 transition"
-                >
-                  다른 선생님 선택
-                </button>
+                <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleClear}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 px-3.5 py-2 rounded-xl border border-blue-200 transition shadow-2xs active:scale-95"
+                    title="첫화면으로 이동"
+                  >
+                    <HomeIcon className="w-4 h-4 text-blue-600" />
+                    <span>홈으로</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuery('');
+                      searchInputRef.current?.focus();
+                    }}
+                    className="text-xs font-semibold text-gray-500 hover:text-gray-800 bg-gray-50 hover:bg-gray-100 px-3 py-2 rounded-xl border border-gray-200 transition"
+                  >
+                    다른 검색
+                  </button>
+                </div>
               </div>
 
               {/* Day Filter Pills */}
@@ -857,6 +888,26 @@ export const Home: React.FC = () => {
 
             {/* Timetable Table */}
             {renderTimetable()}
+
+            {/* Bottom Return to Home Card */}
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-center sm:text-left">
+                <p className="text-xs sm:text-sm font-bold text-gray-800">
+                  다른 선생님 시간표나 오늘의 교문 지도를 확인하시겠습니까?
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  첫화면으로 이동하면 오늘의 교문 지도 선생님과 전체 명단을 바로 볼 수 있습니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleClear}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition active:scale-95 shrink-0"
+              >
+                <HomeIcon className="w-4 h-4" />
+                <span>홈으로 이동</span>
+              </button>
+            </div>
           </div>
         ) : (
           /* Initial State with Complete Teacher Directory Accordion */
@@ -1003,6 +1054,12 @@ export const Home: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* 오늘의 교문 지도 선생님 코너 */}
+            <TodayGateDuty 
+              teachers={teachers} 
+              onSelectTeacher={handleSelectTeacher} 
+            />
           </div>
         )}
       </main>
