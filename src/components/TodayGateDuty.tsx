@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ShieldCheck, Calendar, Clock, ChevronLeft, ChevronRight, User, AlertCircle, ChevronDown, ChevronUp, ExternalLink, Sparkles } from 'lucide-react';
+import { ShieldCheck, Calendar, ChevronLeft, ChevronRight, User, AlertCircle, ChevronDown, ChevronUp, ExternalLink, Sparkles } from 'lucide-react';
 import { GateDutyDay, GateDutyMonthRecord } from '../types/gateDuty';
 import { getKSTDate, fetchGateDutyMonth } from '../lib/gateDutyStore';
 import { Teacher } from '../lib/timetableUtils';
@@ -12,9 +12,6 @@ interface TodayGateDutyProps {
 export const TodayGateDuty: React.FC<TodayGateDutyProps> = ({ teachers, onSelectTeacher }) => {
   const [dutyRecord, setDutyRecord] = useState<GateDutyMonthRecord | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentTime, setCurrentTime] = useState<string>('');
-  const [currentHour, setCurrentHour] = useState<number>(8);
-  const [currentMinute, setCurrentMinute] = useState<number>(20);
   
   // Selected offset from today (0 = today, -1 = yesterday, +1 = tomorrow, etc.)
   const [dayOffset, setDayOffset] = useState<number>(0);
@@ -39,19 +36,8 @@ export const TodayGateDuty: React.FC<TodayGateDutyProps> = ({ teachers, onSelect
 
     loadData();
 
-    // Live clock update every 10 seconds
-    const updateTime = () => {
-      const kst = getKSTDate();
-      setCurrentTime(kst.timeStr);
-      setCurrentHour(kst.hour);
-      setCurrentMinute(kst.minute);
-    };
-    updateTime();
-    const timer = setInterval(updateTime, 10000);
-
     return () => {
       isMounted = false;
-      clearInterval(timer);
     };
   }, []);
 
@@ -103,131 +89,72 @@ export const TodayGateDuty: React.FC<TodayGateDutyProps> = ({ teachers, onSelect
     return teachers.find(t => t.name === cleanName || t.name === name);
   };
 
-  // Status calculation (Korean school gate duty is 08:00 ~ 08:40)
-  const dutyStatus = useMemo(() => {
-    if (!targetedDateInfo.isToday) return null;
-    if (!targetedDuty) return null;
-
-    const totalMinutes = currentHour * 60 + currentMinute;
-    const startMinutes = 8 * 60;       // 08:00
-    const endMinutes = 8 * 60 + 15;    // 08:15
-
-    if (totalMinutes < startMinutes) {
-      return {
-        label: '아침 08:00부터 교문 지도 예정',
-        badgeClass: 'bg-amber-50 text-amber-700 border-amber-200',
-        dotClass: 'bg-amber-500',
-      };
-    } else if (totalMinutes >= startMinutes && totalMinutes <= endMinutes) {
-      return {
-        label: '현재 교문 지도 진행 중 (08:00~08:15)',
-        badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200 animate-pulse',
-        dotClass: 'bg-emerald-500',
-      };
-    } else {
-      return {
-        label: '오늘 교문 지도 완료 (08:00~08:15)',
-        badgeClass: 'bg-gray-100 text-gray-600 border-gray-200',
-        dotClass: 'bg-gray-400',
-      };
-    }
-  }, [targetedDateInfo.isToday, targetedDuty, currentHour, currentMinute]);
-
   return (
-    <section className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden transition hover:shadow-md">
-      {/* Header Banner */}
-      <div className="bg-linear-to-r from-blue-700 via-indigo-700 to-blue-800 text-white px-5 py-4">
+    <section className="bg-white rounded-2xl border-2 border-blue-200 shadow-xs overflow-hidden transition hover:shadow-md">
+      {/* Header Banner - White with Blue Accent */}
+      <div className="bg-blue-50/70 border-b border-blue-100 px-5 py-3.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center backdrop-blur-xs border border-white/20">
+            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
               <ShieldCheck className="w-5 h-5 text-white" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-bold tracking-tight text-white">
-                  오늘의 교문 지도 선생님
-                </h3>
-                {targetedDateInfo.isToday && (
-                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white/20 text-white border border-white/30 backdrop-blur-xs">
-                    실시간 안내
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-blue-100/90 mt-0.5">
-                안전하고 활기찬 등굣길을 이끌어 주시는 교문 지도 담당 선생님입니다.
+              <h3 className="text-base font-bold tracking-tight text-blue-950">
+                오늘의 교문 지도 선생님
+              </h3>
+              <p className="text-xs text-blue-600/90 mt-0.5 truncate">
+                등굣길 학생 안전 지도 담당
               </p>
             </div>
           </div>
 
-          {/* Date Navigation Pills */}
-          <div className="flex items-center gap-1.5 self-start sm:self-auto bg-black/20 p-1 rounded-xl backdrop-blur-xs border border-white/10">
+          {/* Date Selector Pill */}
+          <div className="flex items-center gap-1.5 self-start sm:self-auto bg-white px-2.5 py-1 rounded-xl border border-blue-200 shadow-2xs">
             <button
               type="button"
               onClick={() => setDayOffset(prev => prev - 1)}
-              className="p-1 text-white/80 hover:text-white hover:bg-white/15 rounded-lg transition"
-              title="이전 날"
+              className="p-1 hover:bg-blue-50 rounded-lg text-gray-500 hover:text-blue-700 transition"
+              title="어제"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <button
-              type="button"
-              onClick={() => setDayOffset(0)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
-                dayOffset === 0
-                  ? 'bg-white text-blue-900 shadow-xs'
-                  : 'text-white/80 hover:text-white hover:bg-white/10'
-              }`}
-            >
-              오늘
-            </button>
+
+            <div className="flex items-center gap-1 px-1.5 text-xs font-bold text-gray-800 whitespace-nowrap">
+              <Calendar className="w-3.5 h-3.5 text-blue-600" />
+              <span>
+                {targetedDateInfo.month}월 {targetedDateInfo.day}일 ({targetedDateInfo.dayOfWeek[0]})
+              </span>
+              {targetedDateInfo.isToday && (
+                <span className="text-[10px] bg-blue-600 text-white font-extrabold px-1.5 py-0.2 rounded-md ml-1 shadow-2xs">
+                  오늘
+                </span>
+              )}
+            </div>
+
             <button
               type="button"
               onClick={() => setDayOffset(prev => prev + 1)}
-              className="p-1 text-white/80 hover:text-white hover:bg-white/15 rounded-lg transition"
-              title="다음 날"
+              className="p-1 hover:bg-blue-50 rounded-lg text-gray-500 hover:text-blue-700 transition"
+              title="내일"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
+
+            {dayOffset !== 0 && (
+              <button
+                type="button"
+                onClick={() => setDayOffset(0)}
+                className="text-[10px] text-blue-600 hover:text-blue-800 font-semibold underline ml-1 px-1 py-0.5"
+              >
+                오늘로
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       {/* Main Body */}
       <div className="p-5 sm:p-6 space-y-4">
-        {/* Date & Time Status Bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-blue-600" />
-            <span className="text-sm font-bold text-gray-800">
-              {targetedDateInfo.year}년 {targetedDateInfo.month}월 {targetedDateInfo.day}일 ({targetedDateInfo.dayOfWeek})
-            </span>
-            {targetedDateInfo.isToday ? (
-              <span className="text-xs bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded-md border border-blue-100">
-                오늘
-              </span>
-            ) : (
-              <span className="text-xs bg-gray-100 text-gray-600 font-medium px-2 py-0.5 rounded-md">
-                {dayOffset > 0 ? `+${dayOffset}일 후` : `${Math.abs(dayOffset)}일 전`}
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 text-xs">
-            {targetedDateInfo.isToday && currentTime && (
-              <span className="inline-flex items-center gap-1 text-gray-500 font-medium bg-gray-50 px-2 py-1 rounded-md border border-gray-100">
-                <Clock className="w-3.5 h-3.5 text-gray-400" />
-                현재 시각 {currentTime}
-              </span>
-            )}
-            {dutyStatus && (
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${dutyStatus.badgeClass}`}>
-                <span className={`w-2 h-2 rounded-full ${dutyStatus.dotClass}`} />
-                {dutyStatus.label}
-              </span>
-            )}
-          </div>
-        </div>
-
         {/* Teachers List / Content */}
         {loading ? (
           <div className="py-8 text-center text-gray-400 text-sm animate-pulse">
@@ -246,15 +173,15 @@ export const TodayGateDuty: React.FC<TodayGateDutyProps> = ({ teachers, onSelect
                         onSelectTeacher(matchedTeacher);
                       }
                     }}
-                    className={`p-4 rounded-xl border transition group ${
+                    className={`p-3.5 rounded-xl border transition group ${
                       matchedTeacher && onSelectTeacher
-                        ? 'bg-blue-50/40 hover:bg-blue-50 border-blue-100 hover:border-blue-300 cursor-pointer shadow-2xs'
-                        : 'bg-gray-50 border-gray-200'
+                        ? 'bg-white hover:bg-blue-50/50 border-gray-200 hover:border-blue-300 cursor-pointer shadow-2xs'
+                        : 'bg-gray-50/70 border-gray-200'
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow-xs group-hover:scale-105 transition-transform">
+                        <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-700 font-bold flex items-center justify-center text-sm border border-blue-100 group-hover:bg-blue-600 group-hover:text-white transition-colors">
                           {idx + 1}
                         </div>
                         <div>
@@ -264,21 +191,17 @@ export const TodayGateDuty: React.FC<TodayGateDutyProps> = ({ teachers, onSelect
                             </span>
                             <span className="text-xs text-gray-500 font-normal">선생님</span>
                           </div>
-                          {matchedTeacher?.homeroom ? (
-                            <span className="text-[11px] text-blue-700 bg-blue-100/70 px-1.5 py-0.5 rounded font-medium">
+                          {matchedTeacher?.homeroom && (
+                            <span className="text-[11px] text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded font-medium inline-block mt-0.5">
                               {matchedTeacher.homeroom}반 담임
-                            </span>
-                          ) : (
-                            <span className="text-[11px] text-gray-500">
-                              교문 지도 담당교사
                             </span>
                           )}
                         </div>
                       </div>
 
                       {matchedTeacher && onSelectTeacher && (
-                        <span className="text-xs font-semibold text-blue-600 group-hover:underline flex items-center gap-1 opacity-80 group-hover:opacity-100 transition">
-                          시간표 보기
+                        <span className="text-xs font-semibold text-blue-600 group-hover:text-blue-700 flex items-center gap-1 opacity-70 group-hover:opacity-100 transition">
+                          시간표
                           <ExternalLink className="w-3.5 h-3.5" />
                         </span>
                       )}

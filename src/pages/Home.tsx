@@ -19,6 +19,7 @@ import {
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { TodayGateDuty } from '../components/TodayGateDuty';
+import { TodayLunchDuty } from '../components/TodayLunchDuty';
 import { fetchTeachers, getDefaultTeachers } from '../lib/store';
 import { 
   Teacher, 
@@ -726,81 +727,93 @@ export const Home: React.FC = () => {
       )}
 
       <main className="max-w-2xl mx-auto p-4 mt-2">
-        {/* Search Bar with Instant Autocomplete Dropdown */}
-        <div ref={searchContainerRef} className="relative mb-6">
-          <form onSubmit={handleSearch} className="relative">
-            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <Search className="h-5 w-5 text-gray-400" />
+        {/* Main Teacher Timetable Search Card (Highlighted) */}
+        <div className="bg-white rounded-3xl p-5 sm:p-6 border-2 border-blue-500/80 shadow-lg shadow-blue-500/10 mb-6 relative">
+          <div className="flex items-center gap-2.5 mb-3.5">
+            <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+              <Search className="w-4 h-4" />
             </div>
-            <input
-              ref={searchInputRef}
-              type="text"
-              className="block w-full pl-11 pr-24 py-3.5 bg-white border border-gray-200 rounded-2xl text-base shadow-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-              placeholder="선생님 성함 또는 초성 검색 (예: 김가영, ㄱㄱㅇ)"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setIsDropdownOpen(true);
-              }}
-              onFocus={() => {
-                if (query.trim()) setIsDropdownOpen(true);
-              }}
-              autoComplete="off"
-            />
-            <div className="absolute inset-y-0 right-0 pr-2 flex items-center gap-1">
-              {query && (
-                <button
-                  type="button"
-                  onClick={handleClear}
-                  className="p-1.5 text-gray-400 hover:text-gray-600 rounded-full transition"
-                  title="지우기"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-              <button
-                type="submit"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition shadow-xs active:scale-95"
-              >
-                검색
-              </button>
-            </div>
-          </form>
+            <h2 className="text-base sm:text-lg font-bold text-gray-900 tracking-tight">
+              선생님 실시간 수업시간표 검색
+            </h2>
+          </div>
 
-          {/* Autocomplete Dropdown List */}
-          {isDropdownOpen && query.trim().length > 0 && (
-            <div className="absolute z-30 left-0 right-0 mt-2 bg-white border border-gray-200 rounded-2xl shadow-xl max-h-72 overflow-y-auto divide-y divide-gray-100 animate-in fade-in slide-in-from-top-2 duration-150">
-              {filteredTeachers.length > 0 ? (
-                filteredTeachers.map(t => (
+          {/* Search Bar with Instant Autocomplete Dropdown */}
+          <div ref={searchContainerRef} className="relative">
+            <form onSubmit={handleSearch} className="relative">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                <Search className="h-5 w-5 text-blue-500" />
+              </div>
+              <input
+                ref={searchInputRef}
+                type="text"
+                className="block w-full pl-11 pr-24 py-3.5 bg-blue-50/30 hover:bg-white border-2 border-blue-200 focus:border-blue-600 rounded-2xl text-base font-medium shadow-inner focus:bg-white focus:ring-4 focus:ring-blue-100 outline-none transition"
+                placeholder="선생님 성함 또는 초성 검색 (예: 김가영, ㄱㄱㅇ)"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setIsDropdownOpen(true);
+                }}
+                onFocus={() => {
+                  if (query.trim()) setIsDropdownOpen(true);
+                }}
+                autoComplete="off"
+              />
+              <div className="absolute inset-y-0 right-0 pr-2 flex items-center gap-1">
+                {query && (
                   <button
-                    key={t.id || t.name}
                     type="button"
-                    onClick={() => handleSelectTeacher(t)}
-                    className="w-full text-left px-4 py-3.5 hover:bg-blue-50 transition flex items-center justify-between group"
+                    onClick={handleClear}
+                    className="p-1.5 text-gray-400 hover:text-gray-600 rounded-full transition"
+                    title="지우기"
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-gray-800 group-hover:text-blue-600 transition text-base">
-                        {t.name}
-                      </span>
-                      <span className="text-[11px] font-mono text-gray-400 bg-gray-100 group-hover:bg-blue-100/80 group-hover:text-blue-700 px-1.5 py-0.5 rounded transition">
-                        {getChosung(t.name)}
-                      </span>
-                      <span className="text-xs text-gray-500">선생님</span>
-                    </div>
-                    {t.homeroom && (
-                      <span className="text-xs font-semibold text-blue-700 bg-blue-50 group-hover:bg-blue-100 px-2.5 py-1 rounded-md border border-blue-100">
-                        {formatClassroom(t.homeroom)} 담임
-                      </span>
-                    )}
+                    <X className="w-4 h-4" />
                   </button>
-                ))
-              ) : (
-                <div className="p-4 text-center text-sm text-gray-500">
-                  일치하는 선생님이 없습니다.
-                </div>
-              )}
-            </div>
-          )}
+                )}
+                <button
+                  type="submit"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition shadow-sm active:scale-95"
+                >
+                  검색
+                </button>
+              </div>
+            </form>
+
+            {/* Autocomplete Dropdown List */}
+            {isDropdownOpen && query.trim().length > 0 && (
+              <div className="absolute z-30 left-0 right-0 mt-2 bg-white border border-gray-200 rounded-2xl shadow-xl max-h-72 overflow-y-auto divide-y divide-gray-100 animate-in fade-in slide-in-from-top-2 duration-150">
+                {filteredTeachers.length > 0 ? (
+                  filteredTeachers.map(t => (
+                    <button
+                      key={t.id || t.name}
+                      type="button"
+                      onClick={() => handleSelectTeacher(t)}
+                      className="w-full text-left px-4 py-3.5 hover:bg-blue-50 transition flex items-center justify-between group"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-gray-800 group-hover:text-blue-600 transition text-base">
+                          {t.name}
+                        </span>
+                        <span className="text-[11px] font-mono text-gray-400 bg-gray-100 group-hover:bg-blue-100/80 group-hover:text-blue-700 px-1.5 py-0.5 rounded transition">
+                          {getChosung(t.name)}
+                        </span>
+                        <span className="text-xs text-gray-500">선생님</span>
+                      </div>
+                      {t.homeroom && (
+                        <span className="text-xs font-semibold text-blue-700 bg-blue-50 group-hover:bg-blue-100 px-2.5 py-1 rounded-md border border-blue-100">
+                          {formatClassroom(t.homeroom)} 담임
+                        </span>
+                      )}
+                    </button>
+                  ))
+                ) : (
+                  <div className="p-4 text-center text-sm text-gray-500">
+                    일치하는 선생님이 없습니다.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Selected Teacher Details & Timetable */}
@@ -893,10 +906,10 @@ export const Home: React.FC = () => {
             <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="text-center sm:text-left">
                 <p className="text-xs sm:text-sm font-bold text-gray-800">
-                  다른 선생님 시간표나 오늘의 교문 지도를 확인하시겠습니까?
+                  다른 선생님 시간표나 오늘의 교문 지도, 급식 감독을 확인하시겠습니까?
                 </p>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  첫화면으로 이동하면 오늘의 교문 지도 선생님과 전체 명단을 바로 볼 수 있습니다.
+                  첫화면으로 이동하면 오늘의 교문 지도, 급식 감독 선생님과 전체 명단을 바로 볼 수 있습니다.
                 </p>
               </div>
               <button
@@ -1057,6 +1070,12 @@ export const Home: React.FC = () => {
 
             {/* 오늘의 교문 지도 선생님 코너 */}
             <TodayGateDuty 
+              teachers={teachers} 
+              onSelectTeacher={handleSelectTeacher} 
+            />
+
+            {/* 오늘의 급식 감독 선생님 코너 */}
+            <TodayLunchDuty 
               teachers={teachers} 
               onSelectTeacher={handleSelectTeacher} 
             />

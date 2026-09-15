@@ -21,5 +21,9 @@ service cloud.firestore {
     match /gateDuties/{dutyId} {
       allow read, write: if true;
     }
+
+    match /lunchDuties/{dutyId} {
+      allow read, write: if true;
+    }
   }
 }

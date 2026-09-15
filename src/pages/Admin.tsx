@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Upload, Trash2, ArrowLeft, Eye, EyeOff, KeyRound, UserPlus, Edit3, X, Check, User, Crown, Shield, LogOut, Search, Download, RotateCcw, ShieldCheck, History, FileDown, FileSpreadsheet } from 'lucide-react';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { AdminGateDutyManager } from '../components/AdminGateDutyManager';
+import { AdminLunchDutyManager } from '../components/AdminLunchDutyManager';
 import { Teacher, DayOfWeek, dayNames, periods, KOREAN_CONSONANTS, getChosung, matchKorean } from '../lib/timetableUtils';
 import { fetchTeachers, saveSingleTeacher, deleteSingleTeacher, resetAndUploadTeachers, verifyAdmin, updateAdminPassword, AdminUser, fetchBackups, createManualBackup, restoreBackup, BackupItem } from '../lib/store';
 import { exportTimetableToExcel } from '../lib/excelExport';
@@ -580,6 +581,9 @@ export const Admin: React.FC = () => {
 
           {/* Monthly Gate Duty Management & Excel Upload Section */}
           <AdminGateDutyManager teachers={teachers} onMessage={setMessage} />
+
+          {/* Monthly Lunch Duty Management & Excel Upload Section */}
+          <AdminLunchDutyManager onMessage={setMessage} />
 
           <hr className="border-gray-100" />
 
