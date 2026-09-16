@@ -670,17 +670,17 @@ export const Home: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#F8FAFC] pb-24">
       {/* Header */}
-      <header className="bg-white px-4 py-3.5 shadow-xs sticky top-0 z-20 border-b border-gray-100">
+      <header className="bg-white px-4 py-3 sm:py-3.5 shadow-xs sticky top-0 z-20 border-b border-gray-100">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={handleLogoClick}>
+          <div className="flex items-center gap-3 sm:gap-3.5 cursor-pointer select-none group" onClick={handleLogoClick}>
             <SchoolLogo 
-              className="w-10 h-10 object-contain shrink-0"
+              className="w-14 h-14 sm:w-16 sm:h-16 object-contain shrink-0 drop-shadow-xs transition-transform group-hover:scale-105 active:scale-95"
             />
             <div className="flex flex-col justify-center min-w-0">
-              <h1 className="text-xl font-bold text-gray-800 tracking-tight leading-tight">쌤타임</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-800 tracking-tight leading-tight">쌤타임</h1>
               <div className="text-[11px] sm:text-xs font-medium text-gray-500 leading-tight mt-0.5">
-                <span className="block whitespace-nowrap">상일미디어 고등학교</span>
-                <span className="block whitespace-nowrap">수업시간표</span>
+                <span className="block whitespace-nowrap">상일미디어고등학교</span>
+                <span className="block whitespace-nowrap">실시간 수업시간표</span>
               </div>
             </div>
           </div>
