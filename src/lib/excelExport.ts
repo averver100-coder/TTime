@@ -107,3 +107,117 @@ export function exportTimetableToExcel(teachers: Teacher[], customFilename: stri
   const filename = customFilename.endsWith('.xlsx') ? customFilename : `${customFilename}.xlsx`;
   XLSX.writeFile(wb, filename);
 }
+
+/**
+ * Export Class Timetables to Excel (matches school official timetable format)
+ */
+export function exportClassTimetablesToExcel(classes: any[], customFilename: string = '상일미디어고등학교_학년반별_수업시간표.xlsx') {
+  const wb = XLSX.utils.book_new();
+
+  // Sort classes 101 -> 311
+  const sortedClasses = [...classes].sort((a, b) => 
+    String(a.classCode).localeCompare(String(b.classCode), 'ko', { numeric: true })
+  );
+
+  // ==========================================
+  // Sheet 1: 학년반별_수업시간표 (PDF 원본 형식과 동일: 학급, 교시, 월, 화, 수, 목, 금)
+  // ==========================================
+  const headers = ['학급', '교시', '월', '화', '수', '목', '금'];
+  const rows: (string | number)[][] = [headers];
+
+  sortedClasses.forEach(c => {
+    const timetable = c.timetable || {};
+    const mon = timetable.Mon || {};
+    const tue = timetable.Tue || {};
+    const wed = timetable.Wed || {};
+    const thu = timetable.Thu || {};
+    const fri = timetable.Fri || {};
+
+    // 1교시 ~ 7교시
+    for (let p = 1; p <= 7; p++) {
+      const monT = mon[p] || '';
+      const tueT = tue[p] || '';
+      const wedT = wed[p] || '';
+      const thuT = thu[p] || '';
+      const friT = fri[p] || '';
+
+      // Skip row if completely empty across all 5 days for this period
+      if (!monT && !tueT && !wedT && !thuT && !friT && p > 6) {
+        continue;
+      }
+
+      rows.push([
+        c.classCode,
+        `${p}교시`,
+        monT,
+        tueT,
+        wedT,
+        thuT,
+        friT
+      ]);
+    }
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [
+    { wch: 10 }, // 학급
+    { wch: 10 }, // 교시
+    { wch: 14 }, // 월
+    { wch: 14 }, // 화
+    { wch: 14 }, // 수
+    { wch: 14 }, // 목
+    { wch: 14 }, // 금
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, '학년반별_시간표');
+
+  // ==========================================
+  // Sheet 2: 전체_학급_수업상세목록
+  // ==========================================
+  const detailHeaders = ['연번', '학급', '학년', '반', '요일', '교시', '담당 선생님'];
+  const detailRows: (string | number)[][] = [detailHeaders];
+  let idx = 1;
+
+  const dayMap: { key: string; name: string }[] = [
+    { key: 'Mon', name: '월요일' },
+    { key: 'Tue', name: '화요일' },
+    { key: 'Wed', name: '수요일' },
+    { key: 'Thu', name: '목요일' },
+    { key: 'Fri', name: '금요일' },
+  ];
+
+  sortedClasses.forEach(c => {
+    const timetable = c.timetable || {};
+    dayMap.forEach(d => {
+      const daySched = timetable[d.key] || {};
+      for (let p = 1; p <= 7; p++) {
+        const teacher = daySched[p];
+        if (teacher && String(teacher).trim() !== '') {
+          detailRows.push([
+            idx++,
+            c.classCode,
+            `${c.grade}학년`,
+            `${c.classNum}반`,
+            d.name,
+            `${p}교시`,
+            String(teacher).trim()
+          ]);
+        }
+      }
+    });
+  });
+
+  const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
+  wsDetail['!cols'] = [
+    { wch: 8 },
+    { wch: 10 },
+    { wch: 10 },
+    { wch: 8 },
+    { wch: 12 },
+    { wch: 10 },
+    { wch: 16 },
+  ];
+  XLSX.utils.book_append_sheet(wb, wsDetail, '학급수업_상세목록');
+
+  const filename = customFilename.endsWith('.xlsx') ? customFilename : `${customFilename}.xlsx`;
+  XLSX.writeFile(wb, filename);
+}

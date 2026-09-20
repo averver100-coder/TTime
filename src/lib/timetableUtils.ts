@@ -154,3 +154,92 @@ export const matchKorean = (target: string, query: string): boolean => {
   }
   return false;
 };
+
+export interface ClassTimetable {
+  classCode: string; // e.g. "101", "203", "311"
+  grade: number;     // 1, 2, 3
+  classNum: number;  // 1, 2, ..., 11
+  timetable: {
+    [day: string]: {
+      [period: number]: string; // teacher name(s) e.g. "장미경", "최민진", "이선애, 김가영"
+    };
+  };
+}
+
+export const formatClassTitle = (classCode: string): string => {
+  if (!classCode) return '';
+  const trimmed = classCode.trim();
+  if (/^\d{3}$/.test(trimmed)) {
+    const grade = trimmed.charAt(0);
+    const classNum = parseInt(trimmed.substring(1), 10);
+    return `${grade}학년 ${classNum}반`;
+  }
+  return trimmed;
+};
+
+/**
+ * Calculates a match score (lower is better, 999 = no match) for class searches.
+ * Handles:
+ * - Shorthand without zero: "11" -> 1학년 1반, "25" -> 2학년 5반, "311" -> 3학년 11반
+ * - Shorthand with '반': "11반", "25반", "311반"
+ * - Official class codes: "101", "205", "311"
+ * - Hyphenated formats: "1-1", "2-5", "3-11", "1-01"
+ * - Korean natural text: "1학년 1반", "1학년1반", "1학년 1", "2학년 5", "3학년 11"
+ * - Prefix matching: "1", "2", "3", "10", "1-", etc.
+ */
+export const getClassMatchScore = (classItem: ClassTimetable, rawQuery: string): number => {
+  if (!rawQuery) return 999;
+  const q = rawQuery.trim().replace(/\s+/g, '');
+  if (!q) return 999;
+
+  const code = classItem.classCode;
+  const grade = String(classItem.grade);
+  const classNum = String(classItem.classNum);
+  const shorthand = `${grade}${classNum}`; // e.g. "11", "25", "311"
+  const koreanFull = `${grade}학년${classNum}반`;
+  const koreanNoBan = `${grade}학년${classNum}`;
+  const hyphenated = `${grade}-${classNum}`;
+  const hyphenatedPad = `${grade}-${classNum.padStart(2, '0')}`;
+
+  // 1. Exact shorthand match: "11" for 1-1, "25" for 2-5, "311" for 3-11, or with "반"
+  if (q === shorthand || q === `${shorthand}반`) return 1;
+
+  // 2. Exact code match: "101", "205", "311", or "101반"
+  if (code.toLowerCase() === q.toLowerCase() || q === `${code}반`) return 2;
+
+  // 3. Exact hyphen or Korean full match: "1-1", "1-1반", "1학년1반", "1학년1"
+  if (
+    q === hyphenated || 
+    q === `${hyphenated}반` || 
+    q === hyphenatedPad ||
+    q === koreanFull || 
+    q === koreanNoBan
+  ) {
+    return 3;
+  }
+
+  // 4. Korean grade exact match: "1학년", "2학년", "3학년"
+  if (q === `${grade}학년`) return 4;
+
+  // 5. Code prefix match: "10" matches "101", "102"
+  if (code.startsWith(q)) return 5;
+
+  // 6. Shorthand prefix match: e.g. "31" for "310", "311"
+  if (shorthand.startsWith(q)) return 6;
+
+  // 7. Hyphenated prefix match: "1-"
+  if (hyphenated.startsWith(q)) return 7;
+
+  // 8. Substring in Korean full title: e.g. "1학년 1"
+  if (koreanFull.includes(q)) return 8;
+
+  return 999;
+};
+
+/**
+ * Checks if a class matches user query, including shorthand formats
+ * like '11' (1학년 1반), '25' (2학년 5반), '311' (3학년 11반).
+ */
+export const matchClassCode = (classItem: ClassTimetable, rawQuery: string): boolean => {
+  return getClassMatchScore(classItem, rawQuery) < 999;
+};

@@ -1,12 +1,23 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, Trash2, ArrowLeft, Eye, EyeOff, KeyRound, UserPlus, Edit3, X, Check, User, Crown, Shield, LogOut, Search, Download, RotateCcw, ShieldCheck, History, FileDown, FileSpreadsheet } from 'lucide-react';
+import { 
+  Upload, Trash2, ArrowLeft, Eye, EyeOff, KeyRound, UserPlus, Edit3, X, Check, 
+  User, Crown, Shield, LogOut, Search, Download, RotateCcw, ShieldCheck, History, 
+  FileDown, FileSpreadsheet, GraduationCap, CalendarDays, Users, Save, CheckCircle
+} from 'lucide-react';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { AdminGateDutyManager } from '../components/AdminGateDutyManager';
 import { AdminLunchDutyManager } from '../components/AdminLunchDutyManager';
-import { Teacher, DayOfWeek, dayNames, periods, KOREAN_CONSONANTS, getChosung, matchKorean } from '../lib/timetableUtils';
-import { fetchTeachers, saveSingleTeacher, deleteSingleTeacher, resetAndUploadTeachers, verifyAdmin, updateAdminPassword, AdminUser, fetchBackups, createManualBackup, restoreBackup, BackupItem } from '../lib/store';
-import { exportTimetableToExcel } from '../lib/excelExport';
+import { Footer } from '../components/Footer';
+import { Teacher, ClassTimetable, DayOfWeek, dayNames, periods, KOREAN_CONSONANTS, getChosung, matchKorean, formatClassTitle, matchClassCode, getClassMatchScore } from '../lib/timetableUtils';
+import { 
+  fetchTeachers, saveSingleTeacher, deleteSingleTeacher, resetAndUploadTeachers, 
+  verifyAdmin, updateAdminPassword, AdminUser, fetchBackups, createManualBackup, 
+  restoreBackup, BackupItem, fetchClassTimetables, saveClassTimetable, 
+  resetAndUploadClassTimetables, getDefaultClassTimetables 
+} from '../lib/store';
+import { exportTimetableToExcel, exportClassTimetablesToExcel } from '../lib/excelExport';
+import { parseClassTimetableExcel } from '../lib/excelClassParser';
 
 const getTeacherTotalPeriods = (teacher: Teacher): number => {
   let count = 0;
@@ -28,18 +39,28 @@ export const Admin: React.FC = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   
+  // Navigation tab
+  const [adminTab, setAdminTab] = useState<'teachers' | 'classes' | 'duties' | 'settings'>('classes');
+
   const [targetAccount, setTargetAccount] = useState<'averver' | 'sangsang'>('averver');
   const [newPassword, setNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
   
+  // Teacher data state
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [showAddTeacherModal, setShowAddTeacherModal] = useState(false);
   const [newTeacherName, setNewTeacherName] = useState('');
   const [newTeacherHomeroom, setNewTeacherHomeroom] = useState('');
-
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
   const [teacherSearchTerm, setTeacherSearchTerm] = useState('');
+
+  // Class timetable data state
+  const [classes, setClasses] = useState<ClassTimetable[]>(() => getDefaultClassTimetables());
+  const [classGradeFilter, setClassGradeFilter] = useState<'all' | 1 | 2 | 3>('all');
+  const [selectedClassCode, setSelectedClassCode] = useState<string>('101');
+  const [editingClass, setEditingClass] = useState<ClassTimetable | null>(null);
+  const [classSearchTerm, setClassSearchTerm] = useState('');
 
   const [showBackupModal, setShowBackupModal] = useState(false);
   const [backups, setBackups] = useState<BackupItem[]>([]);
@@ -52,6 +73,11 @@ export const Admin: React.FC = () => {
   useEffect(() => {
     if (isAuthenticated) {
       fetchTeachers().then(setTeachers);
+      fetchClassTimetables().then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setClasses(data);
+        }
+      });
     }
   }, [isAuthenticated]);
 
@@ -88,6 +114,37 @@ export const Admin: React.FC = () => {
       return a.name.localeCompare(b.name, 'ko');
     });
   }, [teachers, teacherSearchTerm]);
+
+  // Sorted and filtered classes
+  const filteredClasses = useMemo(() => {
+    const sorted = [...classes].sort((a, b) => a.classCode.localeCompare(b.classCode, 'ko', { numeric: true }));
+    let list = sorted;
+    if (classGradeFilter !== 'all') {
+      list = list.filter(c => c.grade === classGradeFilter);
+    }
+    const trimmed = classSearchTerm.trim().toLowerCase();
+    if (trimmed) {
+      list = list
+        .filter(c => 
+          matchClassCode(c, trimmed) ||
+          c.classCode.includes(trimmed) || 
+          `${c.grade}-${c.classNum}`.includes(trimmed) || 
+          `${c.grade}학년`.includes(trimmed) ||
+          `${c.classNum}반`.includes(trimmed)
+        )
+        .sort((a, b) => {
+          const scoreA = getClassMatchScore(a, trimmed);
+          const scoreB = getClassMatchScore(b, trimmed);
+          if (scoreA !== scoreB) return scoreA - scoreB;
+          return a.classCode.localeCompare(b.classCode, 'ko', { numeric: true });
+        });
+    }
+    return list;
+  }, [classes, classGradeFilter, classSearchTerm]);
+
+  const currentSelectedClass = useMemo(() => {
+    return classes.find(c => c.classCode === selectedClassCode) || classes[0] || null;
+  }, [classes, selectedClassCode]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -345,6 +402,83 @@ export const Admin: React.FC = () => {
     }
   };
 
+  // Class timetable Excel upload handler
+  const handleClassExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setLoading(true);
+    setMessage('학년반별 엑셀 시간표 분석 및 등록 중...');
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const parsedClasses = parseClassTimetableExcel(buffer);
+      if (parsedClasses.length === 0) {
+        throw new Error('엑셀 파일에서 학년반 시간표 데이터를 찾을 수 없습니다.');
+      }
+
+      await resetAndUploadClassTimetables(parsedClasses);
+      setClasses(parsedClasses);
+      setMessage(`성공: 총 ${parsedClasses.length}개 학급(1~3학년)의 수업시간표가 엑셀에서 등록 및 안전하게 저장되었습니다!`);
+      window.alert(`총 ${parsedClasses.length}개 학급의 수업시간표가 성공적으로 업로드되었습니다!`);
+      if (parsedClasses.length > 0) {
+        setSelectedClassCode(parsedClasses[0].classCode);
+      }
+    } catch (err: any) {
+      console.error('Class timetable upload error:', err);
+      setMessage(`엑셀 분석 실패: ${err?.message || '지원되지 않는 형식이거나 오류가 발생했습니다.'}`);
+      window.alert(`업로드 실패: ${err?.message || '엑셀 분석 중 오류가 발생했습니다.'}`);
+    } finally {
+      setLoading(false);
+      e.target.value = '';
+    }
+  };
+
+  // Class timetable Excel export handler
+  const handleDownloadClassExcel = () => {
+    if (classes.length === 0) {
+      window.alert('다운로드할 학급별 시간표 데이터가 없습니다.');
+      return;
+    }
+    try {
+      exportClassTimetablesToExcel(classes, '상일미디어고등학교_학급별_수업시간표.xlsx');
+      setMessage(`총 ${classes.length}개 학급의 수업시간표가 "상일미디어고등학교_학급별_수업시간표.xlsx" 파일로 다운로드되었습니다.`);
+    } catch (err) {
+      console.error('Class Excel download failed:', err);
+      setMessage('학급 시간표 엑셀 다운로드 중 오류가 발생했습니다.');
+      window.alert('엑셀 파일 생성 중 오류가 발생했습니다.');
+    }
+  };
+
+  // Class timetable JSON backup
+  const handleDownloadClassJsonBackup = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(classes, null, 2));
+    const downloadAnchor = document.createElement('a');
+    const dateStr = new Date().toISOString().split('T')[0];
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `상일미디어고등학교_학급시간표_${classes.length}개반_${dateStr}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  // Save single class timetable edit
+  const handleSaveClassTimetable = async (classItem: ClassTimetable) => {
+    setLoading(true);
+    try {
+      await saveClassTimetable(classItem);
+      setClasses(prev => prev.map(c => c.classCode === classItem.classCode ? classItem : c));
+      setEditingClass(null);
+      setMessage(`${formatClassTitle(classItem.classCode)}의 시간표가 안전하게 저장되었습니다.`);
+      window.alert(`${formatClassTitle(classItem.classCode)}의 시간표가 저장되었습니다!`);
+    } catch (err) {
+      setMessage('학급 시간표 저장 중 오류가 발생했습니다.');
+      window.alert('학급 시간표 저장에 실패했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleResetClick = () => {
     setShowResetModal(true);
   };
@@ -375,8 +509,8 @@ export const Admin: React.FC = () => {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="bg-white p-8 rounded-2xl shadow-sm max-w-sm w-full border border-gray-100">
-          <div className="flex justify-center mb-3">
-            <SchoolLogo className="w-16 h-16" onClick={() => navigate('/')} />
+          <div className="flex justify-center mb-4">
+            <SchoolLogo className="w-20 h-20 sm:w-24 sm:h-24 drop-shadow-sm" onClick={() => navigate('/')} />
           </div>
           <div className="text-center mb-6">
             <h2 className="text-2xl font-bold text-gray-800">관리자 로그인</h2>
@@ -442,15 +576,15 @@ export const Admin: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-center justify-between gap-4 mb-8 flex-wrap">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/')} className="p-2 hover:bg-gray-200 rounded-full transition" title="메인으로">
+            <button onClick={() => navigate('/')} className="p-2 hover:bg-gray-200 rounded-full transition cursor-pointer" title="메인으로">
               <ArrowLeft className="w-6 h-6 text-gray-600" />
             </button>
             <div>
               <h1 className="text-2xl font-bold text-gray-800">시간표 관리자 페이지</h1>
-              <p className="text-xs text-gray-500">선생님 시간표 업로드 및 관리 시스템</p>
+              <p className="text-xs text-gray-500">선생님 및 학년반별 수업시간표 엑셀 업로드/다운로드 시스템</p>
             </div>
           </div>
 
@@ -470,7 +604,7 @@ export const Admin: React.FC = () => {
             <button
               type="button"
               onClick={handleLogout}
-              className="flex items-center gap-1 text-xs text-gray-600 hover:text-red-600 bg-white hover:bg-red-50 border border-gray-200 hover:border-red-200 px-3 py-1.5 rounded-lg transition shadow-2xs"
+              className="flex items-center gap-1 text-xs text-gray-600 hover:text-red-600 bg-white hover:bg-red-50 border border-gray-200 hover:border-red-200 px-3 py-1.5 rounded-lg transition shadow-2xs cursor-pointer"
               title="로그아웃"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -479,16 +613,334 @@ export const Admin: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-8">
-          {message && (
-            <div className={`p-4 rounded-lg ${message.includes('오류') || message.includes('잘못된') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
-              {message}
-            </div>
-          )}
+        {/* Admin Navigation Tabs */}
+        <div className="flex items-center gap-1.5 p-1.5 bg-gray-200/80 rounded-2xl mb-6 overflow-x-auto shadow-inner">
+          <button
+            type="button"
+            onClick={() => setAdminTab('classes')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              adminTab === 'classes'
+                ? 'bg-white text-indigo-700 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
+            }`}
+          >
+            <GraduationCap className="w-4 h-4 text-indigo-600" />
+            <span>학년반별 수업시간표 (엑셀)</span>
+            <span className="text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-bold">
+              {classes.length}개반
+            </span>
+          </button>
 
-          {/* Upload Section */}
-          <section>
-            <h2 className="text-lg font-semibold mb-2 text-gray-800">새 학기 시간표 일괄 업로드 (엑셀 / PDF)</h2>
+          <button
+            type="button"
+            onClick={() => setAdminTab('teachers')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              adminTab === 'teachers'
+                ? 'bg-white text-blue-700 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
+            }`}
+          >
+            <Users className="w-4 h-4 text-blue-600" />
+            <span>선생님 시간표 관리</span>
+            <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-700 rounded-full font-bold">
+              {teachers.length}명
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setAdminTab('duties')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              adminTab === 'duties'
+                ? 'bg-white text-emerald-700 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
+            }`}
+          >
+            <CalendarDays className="w-4 h-4 text-emerald-600" />
+            <span>교문 및 급식 지도 관리</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setAdminTab('settings')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              adminTab === 'settings'
+                ? 'bg-white text-gray-800 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
+            }`}
+          >
+            <KeyRound className="w-4 h-4 text-gray-600" />
+            <span>계정 및 보안 설정</span>
+          </button>
+        </div>
+
+        {message && (
+          <div className={`p-4 rounded-xl mb-6 shadow-xs border ${
+            message.includes('오류') || message.includes('잘못된') || message.includes('실패')
+              ? 'bg-red-50 text-red-700 border-red-200' 
+              : 'bg-green-50 text-green-800 border-green-200'
+          }`}>
+            {message}
+          </div>
+        )}
+
+        {/* TAB 1: 학년반별 수업시간표 관리 (엑셀 업로드 & 다운로드) */}
+        {adminTab === 'classes' && (
+          <div className="space-y-6">
+            {/* Class Excel Upload and Download Control Panel */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-6">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2 mb-1">
+                  <GraduationCap className="w-5 h-5 text-indigo-600" />
+                  학년반별 수업시간표 엑셀 업로드 및 다운로드
+                </h2>
+                <p className="text-xs text-gray-500">
+                  컴시간 또는 나이스에서 내려받은 학년반별 수업시간표 엑셀 파일을 일괄 업로드하거나 현재 시간표를 엑셀로 내려받을 수 있습니다.
+                </p>
+              </div>
+
+              {/* Upload Box */}
+              <div className="bg-indigo-50/50 border-2 border-dashed border-indigo-200 hover:border-indigo-400 rounded-2xl p-6 transition flex flex-col items-center justify-center text-center">
+                <Upload className={`w-10 h-10 ${loading ? 'animate-bounce text-indigo-500' : 'text-indigo-400'} mb-2`} />
+                <span className="text-sm font-bold text-gray-800">
+                  {loading ? '학년반 시간표 엑셀 정밀 분석 중...' : '학년반 수업시간표 엑셀 파일 (.xlsx, .xls) 업로드'}
+                </span>
+                <span className="text-xs text-gray-500 mt-1">
+                  컴시간알리미 또는 학교 표준 엑셀 시간표를 지원합니다 (101~311 전체 학급 자동 파싱)
+                </span>
+                <label className="mt-4 inline-flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer active:scale-95">
+                  <span>엑셀 파일 선택하기</span>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                    onChange={handleClassExcelUpload}
+                    className="hidden"
+                    disabled={loading}
+                  />
+                </label>
+              </div>
+
+              {/* Download Buttons */}
+              <div className="pt-2 border-t border-gray-100 flex flex-wrap gap-2.5 items-center justify-between">
+                <div className="text-xs text-gray-600">
+                  현재 등록된 학급: <strong className="text-indigo-700 font-bold">{classes.length}개 학급</strong>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDownloadClassExcel}
+                    disabled={loading || classes.length === 0}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer active:scale-95"
+                    title="현재 등록된 1~3학년 전체 학급의 시간표를 엑셀 파일로 다운로드합니다"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
+                    <span>학급별 시간표 엑셀 다운로드 (.xlsx)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadClassJsonBackup}
+                    disabled={loading || classes.length === 0}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 rounded-xl text-xs font-bold shadow-2xs transition cursor-pointer"
+                  >
+                    <FileDown className="w-4 h-4 text-gray-500" />
+                    <span>JSON 백업</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Class Timetable Explorer & Single Editor */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                    <span>학급별 수업시간표 확인 및 수정</span>
+                    {currentSelectedClass && (
+                      <span className="text-xs px-2.5 py-0.5 bg-indigo-50 text-indigo-700 rounded-full font-bold border border-indigo-100">
+                        {formatClassTitle(currentSelectedClass.classCode)}
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    학급을 선택하여 월~금 1~7교시 시간표를 확인하거나 교시별 과목 및 교사를 직접 수정할 수 있습니다.
+                  </p>
+                </div>
+
+                {currentSelectedClass && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingClass(JSON.parse(JSON.stringify(currentSelectedClass)))}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer self-start sm:self-auto"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>이 학급 시간표 직접 수정</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Grade Filter and Class Selector */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-1 text-xs font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setClassGradeFilter('all')}
+                      className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                        classGradeFilter === 'all'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      전체 ({classes.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setClassGradeFilter(1)}
+                      className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                        classGradeFilter === 1
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      1학년 ({classes.filter(c => c.grade === 1).length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setClassGradeFilter(2)}
+                      className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                        classGradeFilter === 2
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      2학년 ({classes.filter(c => c.grade === 2).length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setClassGradeFilter(3)}
+                      className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                        classGradeFilter === 3
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      3학년 ({classes.filter(c => c.grade === 3).length})
+                    </button>
+                  </div>
+
+                  <div className="w-48">
+                    <input
+                      type="text"
+                      placeholder="학급 검색 (예: 101, 1-1)"
+                      value={classSearchTerm}
+                      onChange={(e) => setClassSearchTerm(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Class Chips List */}
+                <div className="flex flex-wrap gap-1.5 p-2 bg-gray-50 rounded-xl border border-gray-100 max-h-32 overflow-y-auto">
+                  {filteredClasses.map(c => {
+                    const isSelected = selectedClassCode === c.classCode;
+                    return (
+                      <button
+                        key={c.classCode}
+                        type="button"
+                        onClick={() => setSelectedClassCode(c.classCode)}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center ${
+                          isSelected
+                            ? 'bg-indigo-600 text-white shadow-xs'
+                            : 'bg-white hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 text-gray-700'
+                        }`}
+                      >
+                        <span>{c.grade}학년 {c.classNum}반</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Current Class Weekly Timetable Table */}
+              {currentSelectedClass ? (
+                <div className="border border-gray-200 rounded-xl overflow-hidden shadow-2xs">
+                  <div className="bg-slate-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                    <div className="font-bold text-gray-900 text-sm">
+                      {formatClassTitle(currentSelectedClass.classCode)} 주간 수업시간표
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      월요일 ~ 금요일 1~7교시
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-center border-collapse text-xs sm:text-sm">
+                      <thead>
+                        <tr className="bg-gray-100/80 text-gray-700 border-b border-gray-200">
+                          <th className="py-2.5 px-3 border-r border-gray-200 w-16 font-bold">교시</th>
+                          {weekdays.map(d => (
+                            <th key={d.key} className="py-2.5 px-3 border-r border-gray-200 last:border-r-0 font-bold">
+                              {d.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 bg-white">
+                        {periods.map(p => (
+                          <tr key={p.period} className="hover:bg-slate-50/50 transition">
+                            <td className="py-2.5 px-2 border-r border-gray-200 font-bold bg-gray-50 text-gray-700 text-xs">
+                              {p.period}교시
+                            </td>
+                            {weekdays.map(d => {
+                              const lessonText = currentSelectedClass.timetable[d.key]?.[p.period] || '';
+                              const isFriday6 = d.key === 'Fri' && p.period === 6;
+                              const hasLesson = Boolean(lessonText.trim());
+
+                              return (
+                                <td key={d.key} className="py-2 px-2 border-r border-gray-200 last:border-r-0">
+                                  {hasLesson || isFriday6 ? (
+                                    <div className={`p-1 rounded-md ${
+                                      isFriday6
+                                        ? 'bg-indigo-50/90 border-2 border-indigo-400 font-bold text-indigo-950 flex items-center justify-center gap-1'
+                                        : 'bg-indigo-50/70 border border-indigo-100 font-bold text-indigo-950'
+                                    }`}>
+                                      <div className="text-xs truncate">
+                                        {lessonText}
+                                      </div>
+                                      {isFriday6 && (
+                                        <span className="text-[10px] bg-indigo-600 text-white px-1 py-0.2 rounded font-extrabold leading-none">
+                                          HR
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-gray-300 text-xs">-</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-8 text-center text-sm text-gray-500 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                  선택된 학급이 없습니다. 위에서 학급을 선택해주세요.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: 선생님 시간표 관리 (엑셀/PDF 업로드, 다운로드, 편집) */}
+        {adminTab === 'teachers' && (
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-8">
+            {/* Upload Section */}
+            <section>
+              <h2 className="text-lg font-semibold mb-2 text-gray-800">새 학기 시간표 일괄 업로드 (엑셀 / PDF)</h2>
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-3.5 mb-4 text-xs text-blue-900 leading-relaxed">
               <strong>💡 엑셀(.xlsx, .xls, .csv) 업로드 강력 권장</strong><br />
               나이스(NEIS) 또는 컴시간에서 내려받은 <strong>엑셀 파일</strong>을 업로드하시면 100% 정확하게 시간표가 일괄 등록됩니다.
@@ -747,10 +1199,20 @@ export const Admin: React.FC = () => {
               </div>
             )}
           </section>
+        </div>
+      )}
 
-          <hr className="border-gray-100" />
+      {/* TAB 3: 교문 및 급식 지도 관리 */}
+      {adminTab === 'duties' && (
+        <div className="space-y-6">
+          <AdminGateDutyManager teachers={teachers} onMessage={(msg) => setMessage(msg)} />
+          <AdminLunchDutyManager onMessage={(msg) => setMessage(msg)} />
+        </div>
+      )}
 
-          {/* Admin Settings Section */}
+      {/* TAB 4: 계정 및 보안 설정 */}
+      {adminTab === 'settings' && (
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-8">
           <section>
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <div>
@@ -773,7 +1235,7 @@ export const Admin: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setTargetAccount('averver')}
-                    className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 border transition ${
+                    className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 border transition cursor-pointer ${
                       targetAccount === 'averver'
                         ? 'bg-amber-50 border-amber-400 text-amber-900 shadow-2xs ring-1 ring-amber-400'
                         : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100'
@@ -785,7 +1247,7 @@ export const Admin: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setTargetAccount('sangsang')}
-                    className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 border transition ${
+                    className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 border transition cursor-pointer ${
                       targetAccount === 'sangsang'
                         ? 'bg-blue-50 border-blue-400 text-blue-900 shadow-2xs ring-1 ring-blue-400'
                         : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100'
@@ -817,7 +1279,7 @@ export const Admin: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowNewPassword(!showNewPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer"
                   >
                     {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
@@ -826,7 +1288,7 @@ export const Admin: React.FC = () => {
               <button
                 type="submit"
                 disabled={loading || newPassword.length < 4}
-                className="flex items-center justify-center gap-2 w-full bg-gray-800 text-white font-medium py-2 rounded-lg hover:bg-gray-900 transition disabled:opacity-50"
+                className="flex items-center justify-center gap-2 w-full bg-gray-800 text-white font-medium py-2 rounded-lg hover:bg-gray-900 transition disabled:opacity-50 cursor-pointer"
               >
                 <KeyRound className="w-4 h-4" />
                 비밀번호 변경 저장
@@ -845,14 +1307,15 @@ export const Admin: React.FC = () => {
             <button
               onClick={handleResetClick}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 font-medium rounded-lg hover:bg-red-100 transition"
+              className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 font-medium rounded-lg hover:bg-red-100 transition cursor-pointer"
             >
               <Trash2 className="w-4 h-4" />
               데이터 초기화
             </button>
           </section>
         </div>
-      </div>
+      )}
+    </div>
 
       {/* Add Teacher Modal */}
       {showAddTeacherModal && (
@@ -1148,6 +1611,102 @@ export const Admin: React.FC = () => {
           </div>
         </div>
       )}
+      {/* Edit Class Timetable Modal */}
+      {editingClass && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-xl border border-gray-100 space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <GraduationCap className="w-5 h-5 text-indigo-600" />
+                  <span>{formatClassTitle(editingClass.classCode)} 수업시간표 직접 수정</span>
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  각 요일 및 교시의 과목명과 담당 교사를 직접 수정할 수 있습니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingClass(null)}
+                className="p-1 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto pr-1">
+              <div className="border border-gray-200 rounded-xl overflow-hidden shadow-2xs">
+                <table className="w-full text-center border-collapse text-xs">
+                  <thead className="bg-gray-100/90 text-gray-700 sticky top-0 z-10">
+                    <tr>
+                      <th className="py-2.5 px-2 border-r border-gray-200 w-14 font-bold">교시</th>
+                      {weekdays.map(d => (
+                        <th key={d.key} className="py-2.5 px-2 border-r border-gray-200 last:border-r-0 font-bold">
+                          {d.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 bg-white">
+                    {periods.map(p => (
+                      <tr key={p.period}>
+                        <td className="py-2 px-1 border-r border-gray-200 font-bold bg-gray-50 text-gray-700">
+                          {p.period}교시
+                        </td>
+                        {weekdays.map(d => {
+                          const currentTeacher = editingClass.timetable[d.key]?.[p.period] || '';
+                          return (
+                            <td key={d.key} className="p-1.5 border-r border-gray-200 last:border-r-0">
+                              <input
+                                type="text"
+                                placeholder="교사명"
+                                value={currentTeacher}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setEditingClass(prev => {
+                                    if (!prev) return null;
+                                    const next = { ...prev, timetable: { ...prev.timetable } };
+                                    if (!next.timetable[d.key]) next.timetable[d.key] = {};
+                                    next.timetable[d.key][p.period] = val;
+                                    return next;
+                                  });
+                                }}
+                                className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-medium text-gray-800 placeholder:text-gray-300 bg-white"
+                              />
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t">
+              <button
+                type="button"
+                onClick={() => setEditingClass(null)}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition cursor-pointer"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => editingClass && handleSaveClassTimetable(editingClass)}
+                disabled={loading}
+                className="inline-flex items-center gap-1.5 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer active:scale-95"
+              >
+                <Check className="w-4 h-4" />
+                <span>시간표 변경사항 저장</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Subtle Copyright Notice */}
+      <Footer />
     </div>
   );
 };

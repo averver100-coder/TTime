@@ -20,9 +20,11 @@ import { PWAInstallButton } from '../components/PWAInstallButton';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { TodayGateDuty } from '../components/TodayGateDuty';
 import { TodayLunchDuty } from '../components/TodayLunchDuty';
-import { fetchTeachers, getDefaultTeachers } from '../lib/store';
+import { ClassTimetableCard } from '../components/ClassTimetableCard';
+import { fetchTeachers, getDefaultTeachers, fetchClassTimetables, getDefaultClassTimetables } from '../lib/store';
 import { 
   Teacher, 
+  ClassTimetable,
   DayOfWeek, 
   dayNames, 
   dayNamesShort,
@@ -32,25 +34,35 @@ import {
   periods, 
   formatClassroom,
   formatClassroomShort,
+  formatClassTitle,
+  matchClassCode,
+  getClassMatchScore,
   KOREAN_CONSONANTS,
   getInitialConsonant,
   getChosung,
   matchKorean
 } from '../lib/timetableUtils';
+import { Footer } from '../components/Footer';
+import { GraduationCap } from 'lucide-react';
 
 const ALL_WEEKDAYS: DayOfWeek[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
 export const Home: React.FC = () => {
   const [teachers, setTeachers] = useState<Teacher[]>(() => getDefaultTeachers());
+  const [classes, setClasses] = useState<ClassTimetable[]>(() => getDefaultClassTimetables());
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
+  const [selectedClass, setSelectedClass] = useState<ClassTimetable | null>(null);
   const [selectedDays, setSelectedDays] = useState<DayOfWeek[]>([]);
   const [logoClicks, setLogoClicks] = useState(0);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showAllDirectory, setShowAllDirectory] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Quick class grade filter
+  const [activeGradeFilter, setActiveGradeFilter] = useState<'all' | 1 | 2 | 3>('all');
 
   // State for detailed today's schedule view and directory mode
   const [showAllTodayPeriods, setShowAllTodayPeriods] = useState(false);
@@ -65,6 +77,11 @@ export const Home: React.FC = () => {
     fetchTeachers().then(data => {
       setTeachers(data);
       setLoading(false);
+    });
+    fetchClassTimetables().then(data => {
+      if (Array.isArray(data) && data.length > 0) {
+        setClasses(data);
+      }
     });
   }, []);
 
@@ -86,7 +103,7 @@ export const Home: React.FC = () => {
   }, []);
 
   const handleLogoClick = () => {
-    if (selectedTeacher || query) {
+    if (selectedTeacher || selectedClass || query) {
       handleClear();
     }
     const newClicks = logoClicks + 1;
@@ -113,6 +130,25 @@ export const Home: React.FC = () => {
     return [...teachers].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   }, [teachers]);
 
+  // Sorted classes 101 -> 311
+  const sortedClasses = useMemo(() => {
+    return [...classes].sort((a, b) => a.classCode.localeCompare(b.classCode, 'ko', { numeric: true }));
+  }, [classes]);
+
+  // Filtered classes by query (e.g. "11", "25", "311", "101", "1-1", "1학년 1반")
+  const filteredClasses = useMemo(() => {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+    return sortedClasses
+      .filter(c => matchClassCode(c, trimmed))
+      .sort((a, b) => {
+        const scoreA = getClassMatchScore(a, trimmed);
+        const scoreB = getClassMatchScore(b, trimmed);
+        if (scoreA !== scoreB) return scoreA - scoreB;
+        return a.classCode.localeCompare(b.classCode, 'ko', { numeric: true });
+      });
+  }, [query, sortedClasses]);
+
   const filteredTeachers = useMemo(() => {
     const trimmed = query.trim();
     if (!trimmed) return [];
@@ -128,8 +164,15 @@ export const Home: React.FC = () => {
         }
 
         const nameMatches = matchKorean(t.name, trimmed);
-        const homeroomMatches = (t.homeroom || '').toLowerCase().includes(trimmed.toLowerCase()) ||
-          `${t.homeroom}반`.includes(trimmed);
+        const homeroomMatches = (() => {
+          if (!t.homeroom) return false;
+          const hr = t.homeroom.toLowerCase();
+          const hrClean = hr.replace(/[\s-]/g, ''); // e.g. "2-5" -> "25"
+          if (hr.includes(trimmed.toLowerCase())) return true;
+          if (`${hr}반`.includes(trimmed)) return true;
+          if (hrClean === trimmedClean || `${hrClean}반` === trimmedClean) return true;
+          return false;
+        })();
         return nameMatches || homeroomMatches;
       })
       .sort((a, b) => {
@@ -156,9 +199,19 @@ export const Home: React.FC = () => {
 
   const handleSelectTeacher = (t: Teacher) => {
     setSelectedTeacher(t);
+    setSelectedClass(null);
     setQuery(t.name);
     setIsDropdownOpen(false);
     setShowAllTodayPeriods(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSelectClass = (c: ClassTimetable) => {
+    setSelectedClass(c);
+    setSelectedTeacher(null);
+    setQuery(formatClassTitle(c.classCode));
+    setActiveGradeFilter(c.grade as 1 | 2 | 3);
+    setIsDropdownOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -167,6 +220,13 @@ export const Home: React.FC = () => {
     const trimmed = query.trim();
     if (!trimmed) return;
 
+    // Check if class matches first when input resembles class code/grade
+    const isClassPattern = /^\d{1,3}$|^\d-\d{1,2}$|^\d학년|\d반$/.test(trimmed.replace(/\s+/g, ''));
+    if (isClassPattern && filteredClasses.length > 0) {
+      handleSelectClass(filteredClasses[0]);
+      return;
+    }
+
     if (filteredTeachers.length > 0) {
       const trimmedClean = trimmed.replace(/\s+/g, '');
       const exact = filteredTeachers.find(t => 
@@ -174,6 +234,8 @@ export const Home: React.FC = () => {
         getChosung(t.name) === trimmedClean
       ) || filteredTeachers[0];
       handleSelectTeacher(exact);
+    } else if (filteredClasses.length > 0) {
+      handleSelectClass(filteredClasses[0]);
     } else {
       setIsDropdownOpen(false);
     }
@@ -182,8 +244,23 @@ export const Home: React.FC = () => {
   const handleClear = () => {
     setQuery('');
     setSelectedTeacher(null);
+    setSelectedClass(null);
     setIsDropdownOpen(false);
+    setActiveGradeFilter('all');
     searchInputRef.current?.focus();
+  };
+
+  const handleGradeButtonClick = (grade: 1 | 2 | 3) => {
+    if (activeGradeFilter === grade && isDropdownOpen) {
+      // Toggle off if already opened
+      setIsDropdownOpen(false);
+      setQuery('');
+      setActiveGradeFilter('all');
+    } else {
+      setActiveGradeFilter(grade);
+      setQuery(`${grade}학년`);
+      setIsDropdownOpen(true);
+    }
   };
 
   // Group teachers by initial consonant in Korean alphabetical order
@@ -672,9 +749,9 @@ export const Home: React.FC = () => {
       {/* Header */}
       <header className="bg-white px-4 py-3 sm:py-3.5 shadow-xs sticky top-0 z-20 border-b border-gray-100">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3 sm:gap-3.5 cursor-pointer select-none group" onClick={handleLogoClick}>
+          <div className="flex items-center gap-3 sm:gap-4 cursor-pointer select-none group" onClick={handleLogoClick}>
             <SchoolLogo 
-              className="w-14 h-14 sm:w-16 sm:h-16 object-contain shrink-0 drop-shadow-xs transition-transform group-hover:scale-105 active:scale-95"
+              className="w-16 h-16 sm:w-20 sm:h-20 object-contain shrink-0 drop-shadow-sm transition-transform group-hover:scale-105 active:scale-95"
             />
             <div className="flex flex-col justify-center min-w-0">
               <h1 className="text-xl sm:text-2xl font-bold text-gray-800 tracking-tight leading-tight">쌤타임</h1>
@@ -727,15 +804,33 @@ export const Home: React.FC = () => {
       )}
 
       <main className="max-w-2xl mx-auto p-4 mt-2">
-        {/* Main Teacher Timetable Search Card (Highlighted) */}
+        {/* Main Teacher & Class Timetable Search Card (Highlighted) */}
         <div className="bg-white rounded-3xl p-5 sm:p-6 border-2 border-blue-500/80 shadow-lg shadow-blue-500/10 mb-6 relative">
-          <div className="flex items-center gap-2.5 mb-3.5">
-            <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
-              <Search className="w-4 h-4" />
+          <div className="flex items-center justify-between mb-3.5 flex-wrap gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                <Search className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-gray-900 tracking-tight">
+                  실시간 수업시간표 검색
+                </h2>
+                <p className="text-[11px] text-gray-500">
+                  선생님 성함이나 초성 또는 학년반(예: 101, 1-1)을 검색해 실시간 시간표를 확인하세요
+                </p>
+              </div>
             </div>
-            <h2 className="text-base sm:text-lg font-bold text-gray-900 tracking-tight">
-              선생님 실시간 수업시간표 검색
-            </h2>
+
+            {(selectedTeacher || selectedClass) && (
+              <button
+                type="button"
+                onClick={handleClear}
+                className="text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl border border-blue-200 transition flex items-center gap-1 cursor-pointer"
+              >
+                <HomeIcon className="w-3.5 h-3.5" />
+                <span>검색 초기화</span>
+              </button>
+            )}
           </div>
 
           {/* Search Bar with Instant Autocomplete Dropdown */}
@@ -748,7 +843,7 @@ export const Home: React.FC = () => {
                 ref={searchInputRef}
                 type="text"
                 className="block w-full pl-11 pr-24 py-3.5 bg-blue-50/30 hover:bg-white border-2 border-blue-200 focus:border-blue-600 rounded-2xl text-base font-medium shadow-inner focus:bg-white focus:ring-4 focus:ring-blue-100 outline-none transition"
-                placeholder="선생님 성함 또는 초성 검색 (예: 김가영, ㄱㄱㅇ)"
+                placeholder="선생님 성함 또는 학년반 검색 (예: 101, 1-1, 김가영)"
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value);
@@ -764,7 +859,7 @@ export const Home: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleClear}
-                    className="p-1.5 text-gray-400 hover:text-gray-600 rounded-full transition"
+                    className="p-1.5 text-gray-400 hover:text-gray-600 rounded-full transition cursor-pointer"
                     title="지우기"
                   >
                     <X className="w-4 h-4" />
@@ -772,49 +867,164 @@ export const Home: React.FC = () => {
                 )}
                 <button
                   type="submit"
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition shadow-sm active:scale-95"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition shadow-sm active:scale-95 cursor-pointer"
                 >
                   검색
                 </button>
               </div>
             </form>
 
-            {/* Autocomplete Dropdown List */}
+            {/* Autocomplete Dropdown List with Classes & Teachers */}
             {isDropdownOpen && query.trim().length > 0 && (
-              <div className="absolute z-30 left-0 right-0 mt-2 bg-white border border-gray-200 rounded-2xl shadow-xl max-h-72 overflow-y-auto divide-y divide-gray-100 animate-in fade-in slide-in-from-top-2 duration-150">
-                {filteredTeachers.length > 0 ? (
-                  filteredTeachers.map(t => (
-                    <button
-                      key={t.id || t.name}
-                      type="button"
-                      onClick={() => handleSelectTeacher(t)}
-                      className="w-full text-left px-4 py-3.5 hover:bg-blue-50 transition flex items-center justify-between group"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-gray-800 group-hover:text-blue-600 transition text-base">
-                          {t.name}
-                        </span>
-                        <span className="text-[11px] font-mono text-gray-400 bg-gray-100 group-hover:bg-blue-100/80 group-hover:text-blue-700 px-1.5 py-0.5 rounded transition">
-                          {getChosung(t.name)}
-                        </span>
-                        <span className="text-xs text-gray-500">선생님</span>
-                      </div>
-                      {t.homeroom && (
-                        <span className="text-xs font-semibold text-blue-700 bg-blue-50 group-hover:bg-blue-100 px-2.5 py-1 rounded-md border border-blue-100">
-                          {formatClassroom(t.homeroom)} 담임
-                        </span>
-                      )}
-                    </button>
-                  ))
-                ) : (
-                  <div className="p-4 text-center text-sm text-gray-500">
-                    일치하는 선생님이 없습니다.
+              <div className="absolute z-30 left-0 right-0 mt-2 bg-white border border-gray-200 rounded-2xl shadow-xl max-h-80 overflow-y-auto divide-y divide-gray-100 animate-in fade-in slide-in-from-top-2 duration-150">
+                {/* 1. Class Matches Section */}
+                {filteredClasses.length > 0 && (
+                  <div className="p-2 bg-slate-50/60">
+                    <div className="text-[11px] font-bold text-indigo-700 px-2 py-1 flex items-center gap-1.5 uppercase tracking-wider">
+                      <GraduationCap className="w-3.5 h-3.5" />
+                      <span>학년반 수업시간표 ({filteredClasses.length}개)</span>
+                    </div>
+                    <div className="space-y-1">
+                      {filteredClasses.map(c => (
+                        <button
+                          key={c.classCode}
+                          type="button"
+                          onClick={() => handleSelectClass(c)}
+                          className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-indigo-50 border border-transparent hover:border-indigo-200 transition flex items-center justify-between group cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <span className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs shrink-0">
+                              <GraduationCap className="w-3.5 h-3.5" />
+                            </span>
+                            <span className="font-bold text-gray-900 group-hover:text-indigo-700 transition text-sm">
+                              {formatClassTitle(c.classCode)}
+                            </span>
+                            <span className="text-[11px] text-gray-400 font-medium bg-gray-100 px-1.5 py-0.5 rounded">
+                              {c.grade}-{c.classNum}
+                            </span>
+                          </div>
+                          <span className="text-xs font-semibold text-indigo-600 bg-white px-2.5 py-1 rounded-md border border-indigo-100 shadow-2xs">
+                            시간표 보기 →
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. Teachers Matches Section */}
+                {filteredTeachers.length > 0 && (
+                  <div className="p-2">
+                    <div className="text-[11px] font-bold text-gray-500 px-2 py-1 flex items-center gap-1.5 uppercase tracking-wider">
+                      <span>선생님 수업시간표 ({filteredTeachers.length}명)</span>
+                    </div>
+                    <div className="space-y-1">
+                      {filteredTeachers.map(t => (
+                        <button
+                          key={t.id || t.name}
+                          type="button"
+                          onClick={() => handleSelectTeacher(t)}
+                          className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-blue-50 transition flex items-center justify-between group cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-gray-800 group-hover:text-blue-600 transition text-base">
+                              {t.name}
+                            </span>
+                            <span className="text-[11px] font-mono text-gray-400 bg-gray-100 group-hover:bg-blue-100/80 group-hover:text-blue-700 px-1.5 py-0.5 rounded transition">
+                              {getChosung(t.name)}
+                            </span>
+                            <span className="text-xs text-gray-500">선생님</span>
+                          </div>
+                          {t.homeroom && (
+                            <span className="text-xs font-semibold text-blue-700 bg-blue-50 group-hover:bg-blue-100 px-2.5 py-1 rounded-md border border-blue-100">
+                              {formatClassroom(t.homeroom)} 담임
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {filteredClasses.length === 0 && filteredTeachers.length === 0 && (
+                  <div className="p-5 text-center text-sm text-gray-500">
+                    일치하는 선생님 또는 학년반이 없습니다.
+                    <div className="text-xs text-gray-400 mt-1">
+                      예: "101", "1-1", "203", "김가영" 형태로 검색해 보세요.
+                    </div>
                   </div>
                 )}
               </div>
             )}
           </div>
+
+          {/* Quick Class Shortcut Bar */}
+          <div className="mt-4 pt-3.5 border-t border-gray-100">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <GraduationCap className="w-4 h-4 text-blue-600" />
+                <span className="text-xs font-bold text-gray-800">학년반 빠른 바로가기</span>
+              </div>
+              <div className="flex items-center gap-1 text-[11px] font-semibold">
+                <button
+                  type="button"
+                  onClick={() => handleGradeButtonClick(1)}
+                  className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                    activeGradeFilter === 1
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  1학년
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleGradeButtonClick(2)}
+                  className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                    activeGradeFilter === 2
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  2학년
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleGradeButtonClick(3)}
+                  className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                    activeGradeFilter === 3
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  3학년
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
+
+        {/* Selected Class Schedule View */}
+        {selectedClass && (
+          <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <ClassTimetableCard 
+              classItem={selectedClass} 
+              teachers={teachers} 
+              currentTime={currentTime}
+              onClose={handleClear}
+              onSelectTeacher={(teacherName) => {
+                const matched = teachers.find(t => t.name === teacherName);
+                if (matched) {
+                  handleSelectTeacher(matched);
+                } else {
+                  // Fallback: search query with that teacher's name
+                  setQuery(teacherName);
+                  setIsDropdownOpen(true);
+                }
+              }}
+            />
+          </div>
+        )}
 
         {/* Selected Teacher Details & Timetable */}
         {selectedTeacher ? (
@@ -922,7 +1132,7 @@ export const Home: React.FC = () => {
               </button>
             </div>
           </div>
-        ) : (
+        ) : !selectedClass ? (
           /* Initial State with Complete Teacher Directory Accordion */
           <div className="space-y-6">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -1080,8 +1290,11 @@ export const Home: React.FC = () => {
               onSelectTeacher={handleSelectTeacher} 
             />
           </div>
-        )}
+        ) : null}
       </main>
+
+      {/* Subtle Copyright Notice */}
+      <Footer />
     </div>
   );
 };

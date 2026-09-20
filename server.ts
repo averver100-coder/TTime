@@ -468,6 +468,94 @@ app.post('/api/teachers', (req, res) => {
   }
 });
 
+// ==========================================
+// Class Timetables APIs
+// ==========================================
+app.get('/api/classes', (req, res) => {
+  try {
+    const filePath = path.join(process.cwd(), 'src', 'data', 'defaultClassTimetables.json');
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath, 'utf-8');
+      return res.setHeader('Content-Type', 'application/json').send(data);
+    }
+    return res.json([]);
+  } catch (err) {
+    console.error('Error reading default class timetables:', err);
+    return res.status(500).json({ error: 'Failed to read class timetables' });
+  }
+});
+
+app.post('/api/classes', (req, res) => {
+  try {
+    const classes = req.body;
+    if (!Array.isArray(classes)) {
+      return res.status(400).json({ error: '학급 목록 배열이 필요합니다.' });
+    }
+
+    const filePath = path.join(process.cwd(), 'src', 'data', 'defaultClassTimetables.json');
+    if (fs.existsSync(filePath)) {
+      try {
+        const existing = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        if (Array.isArray(existing) && existing.length > 0) {
+          ensureBackupDir();
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          fs.writeFileSync(
+            path.join(BACKUP_DIR, `classes_backup_${timestamp}_${existing.length}classes.json`),
+            JSON.stringify(existing, null, 2),
+            'utf-8'
+          );
+        }
+      } catch {}
+    }
+
+    const sorted = [...classes].sort((a, b) => 
+      String(a.classCode).localeCompare(String(b.classCode), 'ko', { numeric: true })
+    );
+    fs.writeFileSync(filePath, JSON.stringify(sorted, null, 2), 'utf-8');
+
+    return res.json({ success: true, classCount: sorted.length });
+  } catch (err) {
+    console.error('Error saving class timetables:', err);
+    return res.status(500).json({ error: 'Failed to save class timetables' });
+  }
+});
+
+app.post('/api/classes/single', (req, res) => {
+  try {
+    const { classItem } = req.body;
+    if (!classItem || !classItem.classCode) {
+      return res.status(400).json({ error: '유효한 학급 정보가 필요합니다.' });
+    }
+
+    const filePath = path.join(process.cwd(), 'src', 'data', 'defaultClassTimetables.json');
+    let currentClasses: any[] = [];
+    if (fs.existsSync(filePath)) {
+      try {
+        currentClasses = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      } catch {
+        currentClasses = [];
+      }
+    }
+
+    const idx = currentClasses.findIndex(c => String(c.classCode) === String(classItem.classCode));
+    if (idx !== -1) {
+      currentClasses[idx] = classItem;
+    } else {
+      currentClasses.push(classItem);
+    }
+
+    currentClasses.sort((a, b) => 
+      String(a.classCode).localeCompare(String(b.classCode), 'ko', { numeric: true })
+    );
+    fs.writeFileSync(filePath, JSON.stringify(currentClasses, null, 2), 'utf-8');
+
+    return res.json({ success: true, classCount: currentClasses.length, classItem });
+  } catch (err) {
+    console.error('Error upserting single class:', err);
+    return res.status(500).json({ error: '학급 시간표 저장에 실패했습니다.' });
+  }
+});
+
 // Backup endpoints
 app.get('/api/backups', (req, res) => {
   try {
@@ -1022,7 +1110,9 @@ app.get('/sw.js', (req, res, next) => {
     res.setHeader('Service-Worker-Allowed', '/');
     return res.sendFile(swPath);
   }
-  next();
+  // Safe JS fallback in dev mode when service worker bundle is not yet generated
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  return res.send('// Dev mode placeholder service worker\nself.addEventListener("install", () => self.skipWaiting());\n');
 });
 
 app.get(/^\/workbox-[a-zA-Z0-9]+\.js$/, (req, res, next) => {
@@ -1032,7 +1122,8 @@ app.get(/^\/workbox-[a-zA-Z0-9]+\.js$/, (req, res, next) => {
     res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
     return res.sendFile(distFile);
   }
-  next();
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  return res.send('// Dev mode placeholder\n');
 });
 
 app.get('/manifest.webmanifest', (req, res, next) => {

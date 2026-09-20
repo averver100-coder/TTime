@@ -1,11 +1,17 @@
 import { collection, getDocs, setDoc, getDoc, doc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db } from './firebase';
-import { Teacher } from './timetableUtils';
+import { Teacher, ClassTimetable } from './timetableUtils';
 import defaultTeachersData from '../data/defaultTeachers.json';
+import defaultClassTimetablesData from '../data/defaultClassTimetables.json';
 
 export function getDefaultTeachers(): Teacher[] {
   const list = (defaultTeachersData as Teacher[]) || [];
   return [...list].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+}
+
+export function getDefaultClassTimetables(): ClassTimetable[] {
+  const list = (defaultClassTimetablesData as ClassTimetable[]) || [];
+  return [...list].sort((a, b) => a.classCode.localeCompare(b.classCode, 'ko', { numeric: true }));
 }
 
 export type AdminRole = 'superadmin' | 'admin';
@@ -381,4 +387,210 @@ export async function restoreBackup(filename: string): Promise<Teacher[]> {
     return teachers;
   }
   throw new Error('복원된 데이터가 비어있습니다.');
+}
+
+/**
+ * Robust Union/Merge Fetch for Class Timetables:
+ * Collects class schedules from bundled defaults, local server cache, AND Firestore,
+ * merging them by classCode so that no class is ever missing.
+ */
+export async function fetchClassTimetables(): Promise<ClassTimetable[]> {
+  const classMap = new Map<string, ClassTimetable>();
+
+  // 1. Seed with bundled data
+  const bundled = (defaultClassTimetablesData as ClassTimetable[]) || [];
+  bundled.forEach(c => {
+    if (c && c.classCode) {
+      classMap.set(c.classCode, {
+        classCode: c.classCode,
+        grade: c.grade || parseInt(c.classCode.charAt(0), 10) || 1,
+        classNum: c.classNum || parseInt(c.classCode.substring(1), 10) || 1,
+        timetable: typeof c.timetable === 'string' ? JSON.parse(c.timetable) : (c.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} })
+      });
+    }
+  });
+
+  // 2. Overlay from local Express API
+  let localApiCount = 0;
+  try {
+    const res = await fetch('/api/classes').catch(() => null);
+    if (res && res.ok) {
+      const data = await res.json().catch(() => null);
+      if (Array.isArray(data)) {
+        localApiCount = data.length;
+        data.forEach((c: any) => {
+          if (c && c.classCode) {
+            classMap.set(c.classCode, {
+              classCode: c.classCode,
+              grade: c.grade || parseInt(c.classCode.charAt(0), 10) || 1,
+              classNum: c.classNum || parseInt(c.classCode.substring(1), 10) || 1,
+              timetable: typeof c.timetable === 'string' ? JSON.parse(c.timetable) : (c.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} })
+            });
+          }
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('Local API read classes warning:', err);
+  }
+
+  // 3. Overlay from Firestore (authoritative cloud state)
+  try {
+    const firestorePromise = (async () => {
+      const snapshot = await getDocs(collection(db, 'classes'));
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        const classCode = data.classCode || docSnap.id;
+        if (classCode) {
+          classMap.set(classCode, {
+            classCode,
+            grade: data.grade || parseInt(classCode.charAt(0), 10) || 1,
+            classNum: data.classNum || parseInt(classCode.substring(1), 10) || 1,
+            timetable: typeof data.timetable === 'string' ? JSON.parse(data.timetable) : (data.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} })
+          });
+        }
+      });
+    })();
+
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Firestore timeout')), 3000)
+    );
+
+    await Promise.race([firestorePromise, timeoutPromise]);
+  } catch (err) {
+    console.warn('Firestore classes fetch warning:', err);
+  }
+
+  const defaultMap = new Map<string, string>();
+  (defaultClassTimetablesData as ClassTimetable[]).forEach(c => {
+    if (c.timetable?.Fri?.[6] && c.timetable.Fri[6] !== 'HR') {
+      defaultMap.set(c.classCode, c.timetable.Fri[6]);
+    }
+  });
+
+  const mergedList = Array.from(classMap.values())
+    .map(c => {
+      const timetable = { ...c.timetable };
+      // If Fri 6 was saved as literal 'HR', restore teacher name from default data
+      if (timetable.Fri && timetable.Fri[6] === 'HR' && defaultMap.has(c.classCode)) {
+        timetable.Fri[6] = defaultMap.get(c.classCode)!;
+      }
+      return { ...c, timetable };
+    })
+    .sort((a, b) => 
+      a.classCode.localeCompare(b.classCode, 'ko', { numeric: true })
+    );
+
+  // Sync back to local API if merged list has new data
+  if (mergedList.length > localApiCount) {
+    fetch('/api/classes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(mergedList)
+    }).catch(() => {});
+  }
+
+  return mergedList;
+}
+
+/**
+ * Save single class timetable
+ */
+export async function saveClassTimetable(classItem: ClassTimetable): Promise<void> {
+  const cleanClass: ClassTimetable = {
+    classCode: classItem.classCode,
+    grade: classItem.grade || parseInt(classItem.classCode.charAt(0), 10) || 1,
+    classNum: classItem.classNum || parseInt(classItem.classCode.substring(1), 10) || 1,
+    timetable: classItem.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} }
+  };
+
+  // 1. Update local Express server API
+  try {
+    await fetch('/api/classes/single', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ classItem: cleanClass })
+    });
+  } catch (apiErr) {
+    console.warn('Local single class save warning:', apiErr);
+  }
+
+  // 2. Update Firestore document
+  try {
+    const firestorePromise = (async () => {
+      const ref = doc(db, 'classes', cleanClass.classCode);
+      await setDoc(ref, {
+        classCode: cleanClass.classCode,
+        grade: cleanClass.grade,
+        classNum: cleanClass.classNum,
+        timetable: typeof cleanClass.timetable === 'string' 
+          ? cleanClass.timetable 
+          : JSON.stringify(cleanClass.timetable),
+        updatedAt: Date.now()
+      }, { merge: true });
+    })();
+
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Firestore timeout')), 3500)
+    );
+
+    await Promise.race([firestorePromise, timeoutPromise]);
+  } catch (err) {
+    console.warn('Firestore single class save warning:', err);
+  }
+}
+
+/**
+ * Bulk upload and replace class timetables
+ */
+export async function resetAndUploadClassTimetables(classes: ClassTimetable[]): Promise<void> {
+  if (!Array.isArray(classes)) return;
+
+  const sorted = [...classes].sort((a, b) => a.classCode.localeCompare(b.classCode, 'ko', { numeric: true }));
+
+  // 1. Update Express server API
+  try {
+    await fetch('/api/classes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sorted)
+    });
+  } catch (apiErr) {
+    console.warn('Local classes bulk save warning:', apiErr);
+  }
+
+  // 2. Update Firestore batch
+  try {
+    const firestorePromise = (async () => {
+      const existingSnap = await getDocs(collection(db, 'classes'));
+      const batch = writeBatch(db);
+
+      // Clean existing
+      existingSnap.forEach(docSnap => {
+        batch.delete(docSnap.ref);
+      });
+
+      // Add new
+      sorted.forEach(c => {
+        const ref = doc(db, 'classes', c.classCode);
+        batch.set(ref, {
+          classCode: c.classCode,
+          grade: c.grade || parseInt(c.classCode.charAt(0), 10) || 1,
+          classNum: c.classNum || parseInt(c.classCode.substring(1), 10) || 1,
+          timetable: typeof c.timetable === 'string' ? c.timetable : JSON.stringify(c.timetable),
+          updatedAt: Date.now()
+        });
+      });
+
+      await batch.commit();
+    })();
+
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Firestore timeout')), 7000)
+    );
+
+    await Promise.race([firestorePromise, timeoutPromise]);
+  } catch (err) {
+    console.warn('Firestore bulk classes save warning:', err);
+  }
 }
