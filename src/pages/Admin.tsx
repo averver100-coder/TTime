@@ -900,10 +900,8 @@ export const Admin: React.FC = () => {
                               return (
                                 <td key={d.key} className="py-2 px-2 border-r border-gray-200 last:border-r-0">
                                   {hasLesson || isFriday6 ? (
-                                    <div className={`p-1 rounded-md ${
-                                      isFriday6
-                                        ? 'bg-indigo-50/90 border-2 border-indigo-400 font-bold text-indigo-950 flex items-center justify-center gap-1'
-                                        : 'bg-indigo-50/70 border border-indigo-100 font-bold text-indigo-950'
+                                    <div className={`p-1 rounded-md bg-indigo-50/70 border border-indigo-100 font-bold text-indigo-950 ${
+                                      isFriday6 ? 'flex items-center justify-center gap-1' : ''
                                     }`}>
                                       <div className="text-xs truncate">
                                         {lessonText}

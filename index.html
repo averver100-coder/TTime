@@ -1,6 +1,89 @@
 <!doctype html>
 <html lang="ko">
   <head>
+    <script>
+      // Gracefully mock Vite HMR WebSocket and filter logs in AI Studio preview where HMR is disabled
+      (function() {
+        if (typeof window !== 'undefined' && window.WebSocket) {
+          var NativeWebSocket = window.WebSocket;
+          function MockViteWebSocket(url, protocols) {
+            var isVite = (protocols === 'vite-hmr' || protocols === 'vite-ping' || 
+                          (typeof url === 'string' && (url.indexOf('token=') !== -1 || url.indexOf('vite') !== -1)));
+            if (!isVite) {
+              return new NativeWebSocket(url, protocols);
+            }
+            var self = this;
+            var listeners = {};
+            this.readyState = 0;
+            this.OPEN = 1;
+            this.CLOSED = 3;
+            this.url = url;
+            this.protocol = protocols || '';
+            this.addEventListener = function(type, fn) {
+              if (!listeners[type]) listeners[type] = [];
+              listeners[type].push(fn);
+            };
+            this.removeEventListener = function(type, fn) {
+              if (!listeners[type]) return;
+              listeners[type] = listeners[type].filter(function(cb) { return cb !== fn; });
+            };
+            this.send = function() {};
+            this.close = function() { self.readyState = 3; };
+
+            setTimeout(function() {
+              self.readyState = 1;
+              var event = new Event('open');
+              if (typeof self.onopen === 'function') self.onopen(event);
+              if (listeners['open']) {
+                listeners['open'].forEach(function(cb) { cb(event); });
+              }
+            }, 0);
+          }
+          MockViteWebSocket.prototype = NativeWebSocket.prototype;
+          MockViteWebSocket.CONNECTING = 0;
+          MockViteWebSocket.OPEN = 1;
+          MockViteWebSocket.CLOSING = 2;
+          MockViteWebSocket.CLOSED = 3;
+          window.WebSocket = MockViteWebSocket;
+        }
+
+        var isViteMsg = function(args) {
+          for (var i = 0; i < args.length; i++) {
+            var a = args[i];
+            if (typeof a === 'string' && (a.indexOf('[vite]') !== -1 || a.indexOf('failed to connect to websocket') !== -1)) return true;
+            if (a && typeof a.message === 'string' && (a.message.indexOf('[vite]') !== -1 || a.message.indexOf('failed to connect to websocket') !== -1)) return true;
+          }
+          return false;
+        };
+        var origError = console.error;
+        console.error = function() {
+          if (isViteMsg(arguments)) return;
+          return origError.apply(console, arguments);
+        };
+        var origWarn = console.warn;
+        console.warn = function() {
+          if (isViteMsg(arguments)) return;
+          return origWarn.apply(console, arguments);
+        };
+        window.addEventListener('error', function(e) {
+          if (e && (
+            (e.message && (e.message.indexOf('[vite]') !== -1 || e.message.indexOf('failed to connect to websocket') !== -1)) ||
+            (e.filename && e.filename.indexOf('@vite/client') !== -1)
+          )) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+          }
+        }, true);
+        window.addEventListener('unhandledrejection', function(e) {
+          var reason = e && (e.reason || e.detail);
+          var reasonStr = String((reason && (reason.message || reason.stack || reason)) || '');
+          if (reasonStr.indexOf('[vite]') !== -1 || reasonStr.indexOf('WebSocket') !== -1 || reasonStr.indexOf('failed to connect') !== -1) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+          }
+        }, true);
+      })();
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>쌤타임 - 상일미디어 고등학교 수업시간표</title>

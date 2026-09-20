@@ -354,11 +354,7 @@ export const ClassTimetableCard: React.FC<ClassTimetableCardProps> = ({
                               onClick={() => onSelectTeacher && onSelectTeacher(teacherName)}
                               className={`w-full py-1.5 px-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer group flex flex-col items-center justify-center gap-0.5 ${
                                 isNow
-                                  ? isFriday6
-                                    ? 'bg-indigo-600 text-white shadow-xs border-2 border-indigo-700'
-                                    : 'bg-blue-600 text-white shadow-xs'
-                                  : isFriday6
-                                  ? 'bg-indigo-50/70 border-2 border-indigo-400 text-indigo-950 hover:border-indigo-600 hover:bg-indigo-100/80 shadow-2xs'
+                                  ? 'bg-blue-600 text-white shadow-xs'
                                   : 'bg-white border border-gray-100 text-gray-800 hover:border-blue-400 hover:text-blue-600 hover:shadow-xs'
                               }`}
                               title={`${teacherName} 선생님의 시간표 보기${isFriday6 ? ' (HR 학급자치활동)' : ''}`}
@@ -385,8 +381,8 @@ export const ClassTimetableCard: React.FC<ClassTimetableCardProps> = ({
                             <div
                               className={`w-full py-1.5 px-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex flex-col items-center justify-center gap-0.5 ${
                                 isNow
-                                  ? 'bg-indigo-600 text-white shadow-xs border-2 border-indigo-700'
-                                  : 'bg-indigo-50/70 border-2 border-indigo-400 text-indigo-900 shadow-2xs'
+                                  ? 'bg-blue-600 text-white shadow-xs'
+                                  : 'bg-white border border-gray-100 text-gray-800'
                               }`}
                               title="HR (학급 자치활동)"
                             >
