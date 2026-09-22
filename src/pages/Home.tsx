@@ -14,13 +14,19 @@ import {
   Coffee,
   CalendarCheck,
   ListFilter,
-  Home as HomeIcon
+  Home as HomeIcon,
+  Star,
+  GraduationCap,
+  Bell
 } from 'lucide-react';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { TodayGateDuty } from '../components/TodayGateDuty';
 import { TodayLunchDuty } from '../components/TodayLunchDuty';
 import { ClassTimetableCard } from '../components/ClassTimetableCard';
+import { BookmarkSection } from '../components/BookmarkSection';
+import { TodayScheduleNotificationToast } from '../components/TodayScheduleNotificationToast';
+import { useBookmarks } from '../hooks/useBookmarks';
 import { fetchTeachers, getDefaultTeachers, fetchClassTimetables, getDefaultClassTimetables } from '../lib/store';
 import { 
   Teacher, 
@@ -43,8 +49,6 @@ import {
   matchKorean
 } from '../lib/timetableUtils';
 import { Footer } from '../components/Footer';
-import { GraduationCap } from 'lucide-react';
-
 const ALL_WEEKDAYS: DayOfWeek[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
 export const Home: React.FC = () => {
@@ -60,6 +64,28 @@ export const Home: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showAllDirectory, setShowAllDirectory] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [isTodayNotificationOpen, setIsTodayNotificationOpen] = useState(false);
+
+  // Auto show today's schedule notification on app startup
+  useEffect(() => {
+    const hasNotifiedThisSession = sessionStorage.getItem('ssamtime_today_startup_notified_v1');
+    if (!hasNotifiedThisSession) {
+      sessionStorage.setItem('ssamtime_today_startup_notified_v1', 'true');
+      const timer = setTimeout(() => {
+        setIsTodayNotificationOpen(true);
+      }, 700);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  // Bookmarks management
+  const {
+    bookmarks,
+    isBookmarked,
+    toggleBookmark,
+    removeBookmark,
+    clearAllBookmarks
+  } = useBookmarks();
 
   // Quick class grade filter
   const [activeGradeFilter, setActiveGradeFilter] = useState<'all' | 1 | 2 | 3>('all');
@@ -248,6 +274,51 @@ export const Home: React.FC = () => {
     setIsDropdownOpen(false);
     setActiveGradeFilter('all');
     searchInputRef.current?.focus();
+  };
+
+  const handleToggleTeacherBookmark = (t: Teacher) => {
+    const wasBookmarked = isBookmarked('teacher', t.name);
+    toggleBookmark({
+      type: 'teacher',
+      id: t.name,
+      title: `${t.name} 선생님`,
+      subtitle: t.homeroom ? `${formatClassroom(t.homeroom)} 담임` : undefined,
+    });
+    setToastMessage(wasBookmarked ? `⭐ '${t.name} 선생님' 즐겨찾기가 해제되었습니다.` : `⭐ '${t.name} 선생님'이 즐겨찾기에 추가되었습니다.`);
+    setTimeout(() => setToastMessage(null), 2500);
+  };
+
+  const handleToggleClassBookmark = (c: ClassTimetable) => {
+    const wasBookmarked = isBookmarked('class', c.classCode);
+    const title = formatClassTitle(c.classCode);
+    toggleBookmark({
+      type: 'class',
+      id: c.classCode,
+      title: title,
+      subtitle: `${c.grade}-${c.classNum} (${c.classCode})`,
+    });
+    setToastMessage(wasBookmarked ? `⭐ '${title}' 즐겨찾기가 해제되었습니다.` : `⭐ '${title}'이 즐겨찾기에 추가되었습니다.`);
+    setTimeout(() => setToastMessage(null), 2500);
+  };
+
+  const handleSelectTeacherByName = (teacherName: string) => {
+    const matched = teachers.find(t => t.name === teacherName);
+    if (matched) {
+      handleSelectTeacher(matched);
+    } else {
+      setQuery(teacherName);
+      setIsDropdownOpen(true);
+    }
+  };
+
+  const handleSelectClassByCode = (classCode: string) => {
+    const matched = classes.find(c => c.classCode === classCode);
+    if (matched) {
+      handleSelectClass(matched);
+    } else {
+      setQuery(classCode);
+      setIsDropdownOpen(true);
+    }
   };
 
   const handleGradeButtonClick = (grade: 1 | 2 | 3) => {
@@ -651,6 +722,7 @@ export const Home: React.FC = () => {
     
     // Always show all weekdays if none selected
     const daysToShow: DayOfWeek[] = selectedDays.length > 0 ? selectedDays : ALL_WEEKDAYS;
+    const currentMins = getCurrentTimeMinutes(currentTime);
 
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-6 break-keep-all">
@@ -666,10 +738,10 @@ export const Home: React.FC = () => {
           </span>
         </div>
         <div className="p-0 overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[320px] table-fixed">
+          <table className="w-full text-left border-collapse min-w-[340px] table-fixed">
             <thead>
               <tr className="bg-gray-50/80 border-b border-gray-100">
-                <th className="py-2.5 px-1 sm:px-2 font-semibold text-gray-500 text-xs w-[64px] sm:w-20 text-center whitespace-nowrap">
+                <th className="py-3 px-1 sm:px-2 font-semibold text-gray-500 text-xs w-[64px] sm:w-20 text-center whitespace-nowrap bg-gray-50/90 border-r border-gray-100">
                   교시
                 </th>
                 {daysToShow.map(day => {
@@ -677,12 +749,14 @@ export const Home: React.FC = () => {
                   return (
                     <th 
                       key={day} 
-                      className={`py-2.5 px-0.5 sm:px-2 font-bold text-xs text-center transition-colors ${
-                        isToday ? 'bg-blue-50 text-blue-700 font-extrabold' : 'text-gray-700'
+                      className={`py-3 px-0.5 sm:px-2 text-xs text-center transition-all ${
+                        isToday 
+                          ? 'bg-blue-100/90 text-blue-950 font-black border-t-2 border-t-blue-600 border-x-2 border-x-blue-300 shadow-2xs' 
+                          : 'font-bold text-gray-700'
                       }`}
                     >
-                      <div className="flex items-center justify-center gap-0.5 sm:gap-1 whitespace-nowrap flex-nowrap leading-tight">
-                        <span className="whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap flex-nowrap leading-tight">
+                        <span className={`whitespace-nowrap ${isToday ? 'text-blue-950 font-black' : ''}`}>
                           {daysToShow.length > 3 ? (
                             <>
                               <span className="inline sm:hidden">{dayNamesShort[day]}</span>
@@ -693,7 +767,7 @@ export const Home: React.FC = () => {
                           )}
                         </span>
                         {isToday && (
-                          <span className="px-1 py-0.5 bg-blue-600 text-white rounded text-[10px] font-medium leading-none whitespace-nowrap shrink-0">
+                          <span className="px-1.5 py-0.5 bg-blue-600 text-white rounded-full text-[10px] font-black leading-none whitespace-nowrap shrink-0 shadow-xs">
                             오늘
                           </span>
                         )}
@@ -704,42 +778,93 @@ export const Home: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {periods.map(p => (
-                <tr key={p.period} className="border-b border-gray-50 hover:bg-gray-50/50 transition">
-                  <td className="py-2 px-1 sm:px-2 text-center border-r border-gray-100 bg-gray-50/30 whitespace-nowrap">
-                    <div className="font-bold text-gray-800 text-xs sm:text-sm">{p.period}교시</div>
-                    <div className="text-[10px] sm:text-[11px] text-gray-400 leading-tight mt-0.5">{p.start}~{p.end}</div>
-                  </td>
-                  {daysToShow.map(day => {
-                    const room = selectedTeacher.timetable[day]?.[p.period];
-                    // 월/화는 7교시까지, 수/목/금은 6교시까지
-                    const isInvalidPeriod = (day === 'Wed' || day === 'Thu' || day === 'Fri') && p.period === 7;
-                    const isToday = day === todayDay;
-                    
-                    return (
-                      <td 
-                        key={day} 
-                        className={`py-2 px-0.5 sm:px-2 text-center ${
-                          isToday ? 'bg-blue-50/30' : ''
-                        } ${isInvalidPeriod ? 'bg-gray-50/60' : ''}`}
-                      >
-                        {isInvalidPeriod ? (
-                          <span className="text-gray-300 text-xs">-</span>
-                        ) : room ? (
-                          <span className="inline-flex items-center justify-center px-1.5 py-1 sm:px-2.5 sm:py-1 bg-blue-100 text-blue-800 rounded-lg font-bold text-xs sm:text-xs shadow-2xs border border-blue-200/70 break-keep-all leading-tight text-center max-w-full">
-                            {formatClassroomShort(room)}
-                          </span>
-                        ) : (
-                          <span className="text-gray-300 text-xs">-</span>
+              {periods.map(p => {
+                const startM = parseTimeString(p.start);
+                const endM = parseTimeString(p.end);
+                const isPeriodActiveNow = currentMins >= startM && currentMins <= endM;
+
+                return (
+                  <tr key={p.period} className="border-b border-gray-100/80 hover:bg-gray-50/40 transition">
+                    <td className={`py-2 px-1 sm:px-2 text-center border-r border-gray-100 whitespace-nowrap transition-colors ${
+                      isPeriodActiveNow ? 'bg-blue-50/70' : 'bg-gray-50/40'
+                    }`}>
+                      <div className="flex items-center justify-center gap-1">
+                        {isPeriodActiveNow && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse shrink-0" />
                         )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+                        <span className={`font-bold text-xs sm:text-sm ${isPeriodActiveNow ? 'text-blue-700' : 'text-gray-800'}`}>
+                          {p.period}교시
+                        </span>
+                      </div>
+                      <div className="text-[10px] sm:text-[11px] text-gray-400 leading-tight mt-0.5">{p.start}~{p.end}</div>
+                    </td>
+                    {daysToShow.map(day => {
+                      const room = selectedTeacher.timetable[day]?.[p.period];
+                      // 월/화는 7교시까지, 수/목/금은 6교시까지
+                      const isInvalidPeriod = (day === 'Wed' || day === 'Thu' || day === 'Fri') && p.period === 7;
+                      const isToday = day === todayDay;
+                      const isCellActiveNow = isToday && isPeriodActiveNow;
+                      
+                      return (
+                        <td 
+                          key={day} 
+                          className={`py-2 px-0.5 sm:px-2 text-center transition-all ${
+                            isToday 
+                              ? `border-x-2 border-x-blue-300/80 ${
+                                  isCellActiveNow 
+                                    ? 'bg-blue-100/90 ring-2 ring-inset ring-blue-500/40 shadow-inner' 
+                                    : 'bg-blue-50/60 hover:bg-blue-100/50'
+                                }` 
+                              : isInvalidPeriod ? 'bg-gray-50/70' : ''
+                          }`}
+                        >
+                          {isInvalidPeriod ? (
+                            <span className="text-gray-300 text-xs font-semibold">-</span>
+                          ) : room ? (
+                            isCellActiveNow ? (
+                              <div className="flex flex-col items-center justify-center gap-0.5">
+                                <span className="inline-flex items-center justify-center px-1.5 py-1 sm:px-2 sm:py-1 bg-blue-600 text-white rounded-lg font-black text-xs shadow-xs ring-2 ring-blue-300 break-keep-all leading-tight text-center max-w-full">
+                                  {formatClassroomShort(room)}
+                                </span>
+                                <span className="text-[9px] font-black text-blue-700 bg-blue-200/90 px-1 py-0.2 rounded leading-tight">
+                                  수업중
+                                </span>
+                              </div>
+                            ) : isToday ? (
+                              <span className="inline-flex items-center justify-center px-1.5 py-1 sm:px-2.5 sm:py-1 bg-blue-600 text-white rounded-lg font-extrabold text-xs shadow-2xs hover:bg-blue-700 break-keep-all leading-tight text-center max-w-full transition">
+                                {formatClassroomShort(room)}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center justify-center px-1.5 py-1 sm:px-2.5 sm:py-1 bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-blue-700 rounded-lg font-semibold text-xs border border-slate-200/80 break-keep-all leading-tight text-center max-w-full transition">
+                                {formatClassroomShort(room)}
+                              </span>
+                            )
+                          ) : isToday ? (
+                            <span className="text-blue-400/80 font-medium text-xs">-</span>
+                          ) : (
+                            <span className="text-gray-300 text-xs">-</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
+        {/* Timetable Footer Note */}
+        {ALL_WEEKDAYS.includes(todayDay) && daysToShow.includes(todayDay) && (
+          <div className="px-4 py-2.5 bg-blue-50/50 border-t border-blue-100/60 flex items-center justify-between text-[11px] text-blue-800">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+              <strong>오늘 요일({dayNames[todayDay]})</strong> 열이 파란색으로 강조되어 있습니다.
+            </span>
+            <span className="text-blue-600 font-semibold hidden sm:inline">
+              현재 시각: {currentTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+        )}
       </div>
     );
   };
@@ -786,15 +911,39 @@ export const Home: React.FC = () => {
       </header>
 
       {/* Live Time Ticker Bar */}
-      <div className="bg-blue-600 text-white px-4 py-2 text-center text-xs font-medium shadow-inner flex items-center justify-center gap-2 sticky top-[65px] z-10">
-        <Clock className="w-3.5 h-3.5 animate-pulse text-blue-200" />
-        <span>
-          {currentTime.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}
-        </span>
-        <span className="font-bold font-mono bg-blue-700/80 px-2.5 py-0.5 rounded text-blue-100">
-          {currentTime.toLocaleTimeString('ko-KR')}
-        </span>
+      <div className="bg-blue-600 text-white px-4 py-2 text-center text-xs font-medium shadow-inner flex items-center justify-center gap-2 sticky top-[65px] z-10 flex-wrap">
+        <div className="flex items-center gap-1.5">
+          <Clock className="w-3.5 h-3.5 animate-pulse text-blue-200" />
+          <span>
+            {currentTime.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}
+          </span>
+          <span className="font-bold font-mono bg-blue-700/80 px-2 py-0.5 rounded text-blue-100 text-[11px]">
+            {currentTime.toLocaleTimeString('ko-KR')}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setIsTodayNotificationOpen(true)}
+          className="inline-flex items-center gap-1 bg-blue-500/80 hover:bg-blue-700 text-white px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-blue-300/40 shadow-2xs transition active:scale-95 cursor-pointer"
+          title="오늘의 수업 시간표 알림 보기"
+        >
+          <Bell className="w-3 h-3 text-yellow-300" />
+          <span>오늘 시간표 알림</span>
+        </button>
       </div>
+
+      {/* Today's Schedule Notification Toast (Startup & On-demand) */}
+      <TodayScheduleNotificationToast
+        teachers={teachers}
+        classes={classes}
+        bookmarks={bookmarks}
+        currentTime={currentTime}
+        isOpen={isTodayNotificationOpen}
+        onClose={() => setIsTodayNotificationOpen(false)}
+        onSelectTeacher={handleSelectTeacherByName}
+        onSelectClass={handleSelectClassByCode}
+      />
 
       {/* Toast Alert */}
       {toastMessage && (
@@ -843,7 +992,7 @@ export const Home: React.FC = () => {
                 ref={searchInputRef}
                 type="text"
                 className="block w-full pl-11 pr-24 py-3.5 bg-blue-50/30 hover:bg-white border-2 border-blue-200 focus:border-blue-600 rounded-2xl text-base font-medium shadow-inner focus:bg-white focus:ring-4 focus:ring-blue-100 outline-none transition"
-                placeholder="선생님 성함 또는 학년반 검색 (예: 101, 1-1, 김가영)"
+                placeholder="이름 또는 학년반 검색(예: 101,11,ㄱㄱㅇ)"
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value);
@@ -875,8 +1024,54 @@ export const Home: React.FC = () => {
             </form>
 
             {/* Autocomplete Dropdown List with Classes & Teachers */}
-            {isDropdownOpen && query.trim().length > 0 && (
+            {isDropdownOpen && (
               <div className="absolute z-30 left-0 right-0 mt-2 bg-white border border-gray-200 rounded-2xl shadow-xl max-h-80 overflow-y-auto divide-y divide-gray-100 animate-in fade-in slide-in-from-top-2 duration-150">
+                {/* 0. Quick Bookmarks List when query is empty but bookmarks exist */}
+                {query.trim().length === 0 && bookmarks.length > 0 && (
+                  <div className="p-2 bg-amber-50/40">
+                    <div className="text-[11px] font-bold text-amber-800 px-2 py-1 flex items-center justify-between uppercase tracking-wider">
+                      <div className="flex items-center gap-1.5">
+                        <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                        <span>즐겨찾는 바로가기 ({bookmarks.length}개)</span>
+                      </div>
+                      <span className="text-[10px] text-amber-700 font-normal">자주 찾는 시간표</span>
+                    </div>
+                    <div className="space-y-1 mt-1">
+                      {bookmarks.map(b => (
+                        <button
+                          key={`${b.type}-${b.id}`}
+                          type="button"
+                          onClick={() => {
+                            if (b.type === 'teacher') {
+                              handleSelectTeacherByName(b.id);
+                            } else {
+                              handleSelectClassByCode(b.id);
+                            }
+                          }}
+                          className="w-full text-left px-3 py-2 rounded-xl hover:bg-amber-100/60 transition flex items-center justify-between group cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-lg bg-amber-200/70 text-amber-800 flex items-center justify-center font-bold text-xs">
+                              <Star className="w-3 h-3 fill-amber-600 text-amber-600" />
+                            </span>
+                            <span className="font-bold text-gray-800 text-sm">
+                              {b.title}
+                            </span>
+                            {b.subtitle && (
+                              <span className="text-[11px] text-gray-500 font-medium">
+                                ({b.subtitle})
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[11px] font-semibold text-amber-800 bg-white px-2 py-0.5 rounded border border-amber-200">
+                            이동 →
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* 1. Class Matches Section */}
                 {filteredClasses.length > 0 && (
                   <div className="p-2 bg-slate-50/60">
@@ -885,29 +1080,48 @@ export const Home: React.FC = () => {
                       <span>학년반 수업시간표 ({filteredClasses.length}개)</span>
                     </div>
                     <div className="space-y-1">
-                      {filteredClasses.map(c => (
-                        <button
-                          key={c.classCode}
-                          type="button"
-                          onClick={() => handleSelectClass(c)}
-                          className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-indigo-50 border border-transparent hover:border-indigo-200 transition flex items-center justify-between group cursor-pointer"
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <span className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs shrink-0">
-                              <GraduationCap className="w-3.5 h-3.5" />
-                            </span>
-                            <span className="font-bold text-gray-900 group-hover:text-indigo-700 transition text-sm">
-                              {formatClassTitle(c.classCode)}
-                            </span>
-                            <span className="text-[11px] text-gray-400 font-medium bg-gray-100 px-1.5 py-0.5 rounded">
-                              {c.grade}-{c.classNum}
-                            </span>
+                      {filteredClasses.map(c => {
+                        const isCBookmarked = isBookmarked('class', c.classCode);
+                        return (
+                          <div
+                            key={c.classCode}
+                            onClick={() => handleSelectClass(c)}
+                            className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-indigo-50 border border-transparent hover:border-indigo-200 transition flex items-center justify-between group cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <span className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs shrink-0">
+                                <GraduationCap className="w-3.5 h-3.5" />
+                              </span>
+                              <span className="font-bold text-gray-900 group-hover:text-indigo-700 transition text-sm">
+                                {formatClassTitle(c.classCode)}
+                              </span>
+                              <span className="text-[11px] text-gray-400 font-medium bg-gray-100 px-1.5 py-0.5 rounded">
+                                {c.grade}-{c.classNum}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleClassBookmark(c);
+                                }}
+                                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                                  isCBookmarked
+                                    ? 'text-amber-500 hover:bg-amber-100/70'
+                                    : 'text-gray-300 hover:text-amber-500 hover:bg-gray-100'
+                                }`}
+                                title={isCBookmarked ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+                              >
+                                <Star className={`w-4 h-4 ${isCBookmarked ? 'fill-amber-400 text-amber-500' : ''}`} />
+                              </button>
+                              <span className="text-xs font-semibold text-indigo-600 bg-white px-2.5 py-1 rounded-md border border-indigo-100 shadow-2xs">
+                                시간표 보기 →
+                              </span>
+                            </div>
                           </div>
-                          <span className="text-xs font-semibold text-indigo-600 bg-white px-2.5 py-1 rounded-md border border-indigo-100 shadow-2xs">
-                            시간표 보기 →
-                          </span>
-                        </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -919,34 +1133,53 @@ export const Home: React.FC = () => {
                       <span>선생님 수업시간표 ({filteredTeachers.length}명)</span>
                     </div>
                     <div className="space-y-1">
-                      {filteredTeachers.map(t => (
-                        <button
-                          key={t.id || t.name}
-                          type="button"
-                          onClick={() => handleSelectTeacher(t)}
-                          className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-blue-50 transition flex items-center justify-between group cursor-pointer"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-gray-800 group-hover:text-blue-600 transition text-base">
-                              {t.name}
-                            </span>
-                            <span className="text-[11px] font-mono text-gray-400 bg-gray-100 group-hover:bg-blue-100/80 group-hover:text-blue-700 px-1.5 py-0.5 rounded transition">
-                              {getChosung(t.name)}
-                            </span>
-                            <span className="text-xs text-gray-500">선생님</span>
+                      {filteredTeachers.map(t => {
+                        const isTBookmarked = isBookmarked('teacher', t.name);
+                        return (
+                          <div
+                            key={t.id || t.name}
+                            onClick={() => handleSelectTeacher(t)}
+                            className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-blue-50 transition flex items-center justify-between group cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-gray-800 group-hover:text-blue-600 transition text-base">
+                                {t.name}
+                              </span>
+                              <span className="text-[11px] font-mono text-gray-400 bg-gray-100 group-hover:bg-blue-100/80 group-hover:text-blue-700 px-1.5 py-0.5 rounded transition">
+                                {getChosung(t.name)}
+                              </span>
+                              <span className="text-xs text-gray-500">선생님</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {t.homeroom && (
+                                <span className="text-xs font-semibold text-blue-700 bg-blue-50 group-hover:bg-blue-100 px-2.5 py-1 rounded-md border border-blue-100">
+                                  {formatClassroom(t.homeroom)} 담임
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleTeacherBookmark(t);
+                                }}
+                                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                                  isTBookmarked
+                                    ? 'text-amber-500 hover:bg-amber-100/70'
+                                    : 'text-gray-300 hover:text-amber-500 hover:bg-gray-100'
+                                }`}
+                                title={isTBookmarked ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+                              >
+                                <Star className={`w-4 h-4 ${isTBookmarked ? 'fill-amber-400 text-amber-500' : ''}`} />
+                              </button>
+                            </div>
                           </div>
-                          {t.homeroom && (
-                            <span className="text-xs font-semibold text-blue-700 bg-blue-50 group-hover:bg-blue-100 px-2.5 py-1 rounded-md border border-blue-100">
-                              {formatClassroom(t.homeroom)} 담임
-                            </span>
-                          )}
-                        </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
 
-                {filteredClasses.length === 0 && filteredTeachers.length === 0 && (
+                {query.trim().length > 0 && filteredClasses.length === 0 && filteredTeachers.length === 0 && (
                   <div className="p-5 text-center text-sm text-gray-500">
                     일치하는 선생님 또는 학년반이 없습니다.
                     <div className="text-xs text-gray-400 mt-1">
@@ -1051,6 +1284,19 @@ export const Home: React.FC = () => {
                 <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
                   <button
                     type="button"
+                    onClick={() => handleToggleTeacherBookmark(selectedTeacher)}
+                    className={`inline-flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl transition shadow-2xs active:scale-95 cursor-pointer ${
+                      isBookmarked('teacher', selectedTeacher.name)
+                        ? 'bg-amber-400 text-amber-950 hover:bg-amber-300 ring-2 ring-amber-300'
+                        : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200'
+                    }`}
+                    title={isBookmarked('teacher', selectedTeacher.name) ? '즐겨찾기 해제' : '즐겨찾기에 추가'}
+                  >
+                    <Star className={`w-4 h-4 ${isBookmarked('teacher', selectedTeacher.name) ? 'fill-amber-950 text-amber-950' : 'text-amber-600'}`} />
+                    <span>{isBookmarked('teacher', selectedTeacher.name) ? '즐겨찾기됨' : '즐겨찾기'}</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleClear}
                     className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 px-3.5 py-2 rounded-xl border border-blue-200 transition shadow-2xs active:scale-95"
                     title="첫화면으로 이동"
@@ -1133,8 +1379,25 @@ export const Home: React.FC = () => {
             </div>
           </div>
         ) : !selectedClass ? (
-          /* Initial State with Complete Teacher Directory Accordion */
+          /* Initial State with Bookmarks & Complete Teacher Directory */
           <div className="space-y-6">
+            {/* Bookmarks Section */}
+            <BookmarkSection
+              bookmarks={bookmarks}
+              onSelectTeacher={handleSelectTeacherByName}
+              onSelectClass={handleSelectClassByCode}
+              onRemoveBookmark={(type, id) => {
+                removeBookmark(type, id);
+                setToastMessage('⭐ 즐겨찾기가 해제되었습니다.');
+                setTimeout(() => setToastMessage(null), 2000);
+              }}
+              onClearAll={() => {
+                clearAllBookmarks();
+                setToastMessage('⭐ 즐겨찾기가 모두 삭제되었습니다.');
+                setTimeout(() => setToastMessage(null), 2000);
+              }}
+            />
+
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <button
                 onClick={() => setShowAllDirectory(!showAllDirectory)}
@@ -1235,20 +1498,30 @@ export const Home: React.FC = () => {
                               <span>{group.con} ({group.list.length}명)</span>
                             </div>
                             <div className="flex flex-wrap gap-1.5">
-                              {group.list.map(t => (
-                                <button
-                                  key={t.id || t.name}
-                                  onClick={() => handleSelectTeacher(t)}
-                                  className="px-2.5 py-1.5 bg-gray-50 hover:bg-blue-50 hover:border-blue-200 border border-gray-200 rounded-lg text-xs font-medium text-gray-800 hover:text-blue-700 transition"
-                                >
-                                  {t.name}
-                                  {t.homeroom && (
-                                    <span className="text-[10px] text-gray-500 ml-1">
-                                      ({t.homeroom})
-                                    </span>
-                                  )}
-                                </button>
-                              ))}
+                              {group.list.map(t => {
+                                const isTBookmarked = isBookmarked('teacher', t.name);
+                                return (
+                                  <button
+                                    key={t.id || t.name}
+                                    onClick={() => handleSelectTeacher(t)}
+                                    className={`px-2.5 py-1.5 border rounded-lg text-xs font-medium transition flex items-center gap-1 cursor-pointer ${
+                                      isTBookmarked
+                                        ? 'bg-amber-50/70 border-amber-300 text-amber-950 font-bold'
+                                        : 'bg-gray-50 hover:bg-blue-50 hover:border-blue-200 border-gray-200 text-gray-800 hover:text-blue-700'
+                                    }`}
+                                  >
+                                    {isTBookmarked && (
+                                      <Star className="w-3 h-3 fill-amber-500 text-amber-500 shrink-0" />
+                                    )}
+                                    <span>{t.name}</span>
+                                    {t.homeroom && (
+                                      <span className="text-[10px] text-gray-500 ml-0.5">
+                                        ({t.homeroom})
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
                         ))}
@@ -1256,22 +1529,34 @@ export const Home: React.FC = () => {
                   ) : (
                     /* Unified Full List strictly in Korean Alphabetical Order */
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                      {sortedTeachers.map((t) => (
-                        <button
-                          key={t.id || t.name}
-                          onClick={() => handleSelectTeacher(t)}
-                          className="px-3 py-2 bg-gray-50 hover:bg-blue-50 hover:border-blue-200 border border-gray-200 rounded-xl text-left text-xs font-medium text-gray-800 hover:text-blue-700 transition flex items-center justify-between"
-                        >
-                          <span className="font-bold">{t.name}</span>
-                          {t.homeroom ? (
-                            <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 font-medium">
-                              {t.homeroom}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-gray-400">교사</span>
-                          )}
-                        </button>
-                      ))}
+                      {sortedTeachers.map((t) => {
+                        const isTBookmarked = isBookmarked('teacher', t.name);
+                        return (
+                          <button
+                            key={t.id || t.name}
+                            onClick={() => handleSelectTeacher(t)}
+                            className={`px-3 py-2 border rounded-xl text-left text-xs font-medium transition flex items-center justify-between cursor-pointer ${
+                              isTBookmarked
+                                ? 'bg-amber-50/70 border-amber-300 text-amber-950 shadow-2xs'
+                                : 'bg-gray-50 hover:bg-blue-50 hover:border-blue-200 border-gray-200 text-gray-800 hover:text-blue-700'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {isTBookmarked && (
+                                <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500 shrink-0" />
+                              )}
+                              <span className="font-bold truncate">{t.name}</span>
+                            </div>
+                            {t.homeroom ? (
+                              <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 font-medium shrink-0">
+                                {t.homeroom}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-gray-400 shrink-0">교사</span>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

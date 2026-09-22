@@ -8,8 +8,10 @@ import {
   Sparkles, 
   CalendarCheck,
   CheckCircle2,
-  X
+  X,
+  Star
 } from 'lucide-react';
+import { useBookmarks } from '../hooks/useBookmarks';
 import { 
   ClassTimetable, 
   DayOfWeek, 
@@ -41,6 +43,18 @@ export const ClassTimetableCard: React.FC<ClassTimetableCardProps> = ({
   onSelectTeacher
 }) => {
   const [selectedDayTab, setSelectedDayTab] = useState<'ALL' | DayOfWeek>('ALL');
+  const { isBookmarked, toggleBookmark } = useBookmarks();
+
+  const isClassBookmarked = isBookmarked('class', classItem.classCode);
+
+  const handleToggleBookmark = () => {
+    toggleBookmark({
+      type: 'class',
+      id: classItem.classCode,
+      title: formatClassTitle(classItem.classCode),
+      subtitle: `${classItem.grade}-${classItem.classNum} (${classItem.classCode})`
+    });
+  };
 
   const todayDay = getDayFromIndex(currentTime.getDay());
   const currentMins = getCurrentTimeMinutes(currentTime);
@@ -145,6 +159,19 @@ export const ClassTimetableCard: React.FC<ClassTimetableCardProps> = ({
               담임: {homeroomTeacher.name} 선생님
             </button>
           )}
+          <button
+            type="button"
+            onClick={handleToggleBookmark}
+            className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
+              isClassBookmarked
+                ? 'bg-amber-400 text-amber-950 hover:bg-amber-300 ring-2 ring-amber-300'
+                : 'bg-white/20 hover:bg-white/30 text-white backdrop-blur-xs'
+            }`}
+            title={isClassBookmarked ? '즐겨찾기 해제' : '즐겨찾기에 추가'}
+          >
+            <Star className={`w-3.5 h-3.5 ${isClassBookmarked ? 'fill-amber-950 text-amber-950' : 'text-white'}`} />
+            <span>{isClassBookmarked ? '즐겨찾기됨' : '즐겨찾기'}</span>
+          </button>
         </div>
 
         <h3 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2.5">
@@ -268,19 +295,27 @@ export const ClassTimetableCard: React.FC<ClassTimetableCardProps> = ({
             >
               전체
             </button>
-            {ALL_WEEKDAYS.map(day => (
-              <button
-                key={day}
-                onClick={() => setSelectedDayTab(day)}
-                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
-                  selectedDayTab === day
-                    ? 'bg-white text-blue-600 font-bold shadow-xs'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                {dayNamesShort[day]}
-              </button>
-            ))}
+            {ALL_WEEKDAYS.map(day => {
+              const isToday = day === todayDay;
+              return (
+                <button
+                  key={day}
+                  onClick={() => setSelectedDayTab(day)}
+                  className={`px-2 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                    selectedDayTab === day
+                      ? 'bg-white text-blue-600 font-bold shadow-xs'
+                      : isToday
+                      ? 'text-blue-700 font-bold hover:bg-white/60'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <span>{dayNamesShort[day]}</span>
+                  {isToday && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" />
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -289,20 +324,24 @@ export const ClassTimetableCard: React.FC<ClassTimetableCardProps> = ({
           <table className="w-full text-left border-collapse min-w-[320px]">
             <thead>
               <tr className="bg-gray-50/80 border-b border-gray-100 text-xs font-bold text-gray-500">
-                <th className="py-2.5 px-3 w-16 text-center">교시</th>
+                <th className="py-3 px-2 w-16 text-center bg-gray-50/90 border-r border-gray-100">교시</th>
                 {daysToDisplay.map(day => {
                   const isToday = todayDay === day;
                   return (
                     <th 
                       key={day}
-                      className={`py-2.5 px-3 text-center transition-colors ${
-                        isToday ? 'bg-blue-50/80 text-blue-700 font-extrabold' : ''
+                      className={`py-3 px-3 text-center transition-all ${
+                        isToday 
+                          ? 'bg-blue-100/90 text-blue-950 font-black border-t-2 border-t-blue-600 border-x-2 border-x-blue-300 shadow-2xs' 
+                          : 'text-gray-700 font-bold border-b border-gray-100'
                       }`}
                     >
-                      <div className="flex items-center justify-center gap-1">
-                        <span>{dayNames[day]}</span>
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span className={`text-xs sm:text-sm ${isToday ? 'font-black text-blue-950' : 'font-bold'}`}>
+                          {dayNames[day]}
+                        </span>
                         {isToday && (
-                          <span className="px-1.5 py-0.2 rounded-full bg-blue-600 text-white text-[10px]">
+                          <span className="px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-black leading-none shadow-xs">
                             오늘
                           </span>
                         )}
@@ -324,8 +363,15 @@ export const ClassTimetableCard: React.FC<ClassTimetableCardProps> = ({
                     }`}
                   >
                     {/* Period Label */}
-                    <td className="py-3 px-2 text-center text-xs font-semibold text-gray-600 bg-gray-50/40">
-                      <div className="font-bold text-gray-800">{period.period}교시</div>
+                    <td className={`py-3 px-2 text-center text-xs font-semibold border-r border-gray-100 ${
+                      isCurrentActivePeriod ? 'bg-blue-50/70 text-blue-900 font-bold' : 'text-gray-600 bg-gray-50/40'
+                    }`}>
+                      <div className="flex items-center justify-center gap-1">
+                        {isCurrentActivePeriod && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse shrink-0" />
+                        )}
+                        <span className="font-bold text-gray-800">{period.period}교시</span>
+                      </div>
                       <div className="text-[10px] text-gray-400 mt-0.5 whitespace-nowrap">
                         {period.start}
                       </div>
@@ -341,21 +387,25 @@ export const ClassTimetableCard: React.FC<ClassTimetableCardProps> = ({
                       return (
                         <td 
                           key={day}
-                          className={`py-2.5 px-3 text-center align-middle transition-colors ${
-                            isNow 
-                              ? 'bg-blue-100/60 font-bold' 
-                              : isToday 
-                              ? 'bg-blue-50/20' 
+                          className={`py-2.5 px-2.5 text-center align-middle transition-all ${
+                            isToday 
+                              ? `border-x-2 border-x-blue-300/80 ${
+                                  isNow 
+                                    ? 'bg-blue-100/90 font-bold ring-2 ring-inset ring-blue-500/40 shadow-inner' 
+                                    : 'bg-blue-50/60 hover:bg-blue-100/50'
+                                }` 
                               : ''
                           }`}
                         >
                           {teacherName ? (
                             <button
                               onClick={() => onSelectTeacher && onSelectTeacher(teacherName)}
-                              className={`w-full py-1.5 px-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer group flex flex-col items-center justify-center gap-0.5 ${
+                              className={`w-full py-2 px-2 rounded-xl text-xs sm:text-sm transition-all cursor-pointer group flex flex-col items-center justify-center gap-0.5 ${
                                 isNow
-                                  ? 'bg-blue-600 text-white shadow-xs'
-                                  : 'bg-white border border-gray-100 text-gray-800 hover:border-blue-400 hover:text-blue-600 hover:shadow-xs'
+                                  ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-300 font-black'
+                                  : isToday
+                                  ? 'bg-white border-2 border-blue-400 text-blue-950 hover:bg-blue-600 hover:text-white shadow-xs font-bold'
+                                  : 'bg-white border border-gray-200 text-gray-800 hover:border-blue-400 hover:text-blue-600 hover:shadow-xs font-medium'
                               }`}
                               title={`${teacherName} 선생님의 시간표 보기${isFriday6 ? ' (HR 학급자치활동)' : ''}`}
                             >
@@ -372,17 +422,19 @@ export const ClassTimetableCard: React.FC<ClassTimetableCardProps> = ({
                                 )}
                               </div>
                               {isNow && (
-                                <span className="text-[10px] bg-white/20 text-white px-1.5 py-0.2 rounded-full font-normal">
+                                <span className="text-[10px] bg-white/20 text-white px-1.5 py-0.2 rounded-full font-bold">
                                   진행 중
                                 </span>
                               )}
                             </button>
                           ) : isFriday6 ? (
                             <div
-                              className={`w-full py-1.5 px-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex flex-col items-center justify-center gap-0.5 ${
+                              className={`w-full py-2 px-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex flex-col items-center justify-center gap-0.5 ${
                                 isNow
                                   ? 'bg-blue-600 text-white shadow-xs'
-                                  : 'bg-white border border-gray-100 text-gray-800'
+                                  : isToday
+                                  ? 'bg-white border-2 border-blue-400 text-blue-950 shadow-xs'
+                                  : 'bg-white border border-gray-200 text-gray-800'
                               }`}
                               title="HR (학급 자치활동)"
                             >
@@ -396,7 +448,7 @@ export const ClassTimetableCard: React.FC<ClassTimetableCardProps> = ({
                               )}
                             </div>
                           ) : (
-                            <span className="text-gray-300 text-xs font-light">-</span>
+                            <span className={`text-xs ${isToday ? 'text-blue-400/80 font-semibold' : 'text-gray-300 font-light'}`}>-</span>
                           )}
                         </td>
                       );
@@ -408,10 +460,13 @@ export const ClassTimetableCard: React.FC<ClassTimetableCardProps> = ({
           </table>
         </div>
 
-        <div className="mt-3 flex items-center justify-between text-[11px] text-gray-400">
+        <div className="mt-3 flex items-center justify-between text-[11px] text-gray-500 flex-wrap gap-2">
           <span>* 선생님 이름을 클릭하면 해당 선생님의 전체 수업시간표를 확인할 수 있습니다.</span>
-          {todayDay && (
-            <span className="text-blue-600 font-medium">파란색 열: 오늘 시간표</span>
+          {ALL_WEEKDAYS.includes(todayDay) && daysToDisplay.includes(todayDay) && (
+            <span className="inline-flex items-center gap-1.5 text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+              오늘({dayNames[todayDay]}) 열 강조 표시 중
+            </span>
           )}
         </div>
       </div>

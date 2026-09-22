@@ -9,7 +9,7 @@ import { SchoolLogo } from '../components/SchoolLogo';
 import { AdminGateDutyManager } from '../components/AdminGateDutyManager';
 import { AdminLunchDutyManager } from '../components/AdminLunchDutyManager';
 import { Footer } from '../components/Footer';
-import { Teacher, ClassTimetable, DayOfWeek, dayNames, periods, KOREAN_CONSONANTS, getChosung, matchKorean, formatClassTitle, matchClassCode, getClassMatchScore } from '../lib/timetableUtils';
+import { Teacher, ClassTimetable, DayOfWeek, dayNames, periods, KOREAN_CONSONANTS, getChosung, matchKorean, formatClassTitle, matchClassCode, getClassMatchScore, getDayFromIndex } from '../lib/timetableUtils';
 import { 
   fetchTeachers, saveSingleTeacher, deleteSingleTeacher, resetAndUploadTeachers, 
   verifyAdmin, updateAdminPassword, AdminUser, fetchBackups, createManualBackup, 
@@ -573,6 +573,7 @@ export const Admin: React.FC = () => {
     { key: 'Thu', label: '목요일' },
     { key: 'Fri', label: '금요일' },
   ];
+  const todayDay = getDayFromIndex(new Date().getDay());
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -878,12 +879,27 @@ export const Admin: React.FC = () => {
                     <table className="w-full text-center border-collapse text-xs sm:text-sm">
                       <thead>
                         <tr className="bg-gray-100/80 text-gray-700 border-b border-gray-200">
-                          <th className="py-2.5 px-3 border-r border-gray-200 w-16 font-bold">교시</th>
-                          {weekdays.map(d => (
-                            <th key={d.key} className="py-2.5 px-3 border-r border-gray-200 last:border-r-0 font-bold">
-                              {d.label}
-                            </th>
-                          ))}
+                          <th className="py-2.5 px-3 border-r border-gray-200 w-16 font-bold bg-gray-50/90">교시</th>
+                          {weekdays.map(d => {
+                            const isToday = d.key === todayDay;
+                            return (
+                              <th 
+                                key={d.key} 
+                                className={`py-2.5 px-3 border-r border-gray-200 last:border-r-0 font-bold transition-all ${
+                                  isToday ? 'bg-blue-100 text-blue-950 border-t-2 border-t-blue-600 font-black shadow-2xs' : ''
+                                }`}
+                              >
+                                <div className="flex items-center justify-center gap-1">
+                                  <span>{d.label}</span>
+                                  {isToday && (
+                                    <span className="px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-black leading-none shadow-xs">
+                                      오늘
+                                    </span>
+                                  )}
+                                </div>
+                              </th>
+                            );
+                          })}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200 bg-white">
@@ -896,11 +912,21 @@ export const Admin: React.FC = () => {
                               const lessonText = currentSelectedClass.timetable[d.key]?.[p.period] || '';
                               const isFriday6 = d.key === 'Fri' && p.period === 6;
                               const hasLesson = Boolean(lessonText.trim());
+                              const isToday = d.key === todayDay;
 
                               return (
-                                <td key={d.key} className="py-2 px-2 border-r border-gray-200 last:border-r-0">
+                                <td 
+                                  key={d.key} 
+                                  className={`py-2 px-2 border-r border-gray-200 last:border-r-0 transition-all ${
+                                    isToday ? 'bg-blue-50/60 border-x-2 border-x-blue-300/80' : ''
+                                  }`}
+                                >
                                   {hasLesson || isFriday6 ? (
-                                    <div className={`p-1 rounded-md bg-indigo-50/70 border border-indigo-100 font-bold text-indigo-950 ${
+                                    <div className={`p-1 rounded-md font-bold transition-all ${
+                                      isToday
+                                        ? 'bg-blue-100/90 border border-blue-200 text-blue-950 shadow-2xs'
+                                        : 'bg-indigo-50/70 border border-indigo-100 text-indigo-950'
+                                    } ${
                                       isFriday6 ? 'flex items-center justify-center gap-1' : ''
                                     }`}>
                                       <div className="text-xs truncate">
@@ -913,7 +939,7 @@ export const Admin: React.FC = () => {
                                       )}
                                     </div>
                                   ) : (
-                                    <span className="text-gray-300 text-xs">-</span>
+                                    <span className={`text-xs ${isToday ? 'text-blue-400 font-semibold' : 'text-gray-300'}`}>-</span>
                                   )}
                                 </td>
                               );
