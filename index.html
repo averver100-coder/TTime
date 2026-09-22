@@ -50,20 +50,26 @@
         var isViteMsg = function(args) {
           for (var i = 0; i < args.length; i++) {
             var a = args[i];
-            if (typeof a === 'string' && (a.indexOf('[vite]') !== -1 || a.indexOf('failed to connect to websocket') !== -1)) return true;
-            if (a && typeof a.message === 'string' && (a.message.indexOf('[vite]') !== -1 || a.message.indexOf('failed to connect to websocket') !== -1)) return true;
+            if (typeof a === 'string' && (a.indexOf('[vite]') !== -1 || a.indexOf('failed to connect to websocket') !== -1 || a.indexOf('WebSocket') !== -1)) return true;
+            if (a && typeof a.message === 'string' && (a.message.indexOf('[vite]') !== -1 || a.message.indexOf('failed to connect to websocket') !== -1 || a.message.indexOf('WebSocket') !== -1)) return true;
           }
           return false;
         };
-        var origError = console.error;
-        console.error = function() {
-          if (isViteMsg(arguments)) return;
-          return origError.apply(console, arguments);
-        };
-        var origWarn = console.warn;
-        console.warn = function() {
-          if (isViteMsg(arguments)) return;
-          return origWarn.apply(console, arguments);
+        ['error', 'warn', 'info', 'log', 'debug'].forEach(function(m) {
+          var orig = console[m];
+          if (typeof orig === 'function') {
+            console[m] = function() {
+              if (isViteMsg(arguments)) return;
+              return orig.apply(console, arguments);
+            };
+          }
+        });
+        window.onerror = function(msg, url) {
+          var m = String(msg || '');
+          var u = String(url || '');
+          if (m.indexOf('[vite]') !== -1 || m.indexOf('websocket') !== -1 || u.indexOf('@vite/client') !== -1) {
+            return true;
+          }
         };
         window.addEventListener('error', function(e) {
           if (e && (

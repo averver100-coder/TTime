@@ -23,6 +23,39 @@
         }
       },
       "required": ["name", "timetable"]
+    },
+    "Meal": {
+      "title": "Meal",
+      "description": "Monthly school lunch menu record",
+      "type": "object",
+      "properties": {
+        "yearMonth": {
+          "type": "string",
+          "description": "Year and month in YYYY-MM format"
+        },
+        "title": {
+          "type": "string",
+          "description": "Title of the monthly meal plan"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of the last update"
+        }
+      },
+      "required": ["yearMonth"]
+    },
+    "ScheduleAlert": {
+      "title": "ScheduleAlert",
+      "description": "Push notification record for schedule change or free period",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "targetTeacher": { "type": "string" },
+        "type": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["title", "message", "targetTeacher", "type"]
     }
   },
   "firestore": {
@@ -31,6 +64,18 @@
         "$ref": "#/entities/Teacher"
       },
       "description": "Stores teacher information and their timetables."
+    },
+    "meals/{mealId}": {
+      "schema": {
+        "$ref": "#/entities/Meal"
+      },
+      "description": "Stores monthly school lunch menu records."
+    },
+    "scheduleAlerts/{alertId}": {
+      "schema": {
+        "$ref": "#/entities/ScheduleAlert"
+      },
+      "description": "Stores push notifications for schedule changes and free periods."
     }
   }
 }

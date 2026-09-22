@@ -3,11 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Upload, Trash2, ArrowLeft, Eye, EyeOff, KeyRound, UserPlus, Edit3, X, Check, 
   User, Crown, Shield, LogOut, Search, Download, RotateCcw, ShieldCheck, History, 
-  FileDown, FileSpreadsheet, GraduationCap, CalendarDays, Users, Save, CheckCircle
+  FileDown, FileSpreadsheet, GraduationCap, CalendarDays, Users, Save, CheckCircle, Bell
 } from 'lucide-react';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { AdminGateDutyManager } from '../components/AdminGateDutyManager';
 import { AdminLunchDutyManager } from '../components/AdminLunchDutyManager';
+import { AdminMealManager } from '../components/AdminMealManager';
+import { AdminScheduleAlertSender } from '../components/AdminScheduleAlertSender';
 import { Footer } from '../components/Footer';
 import { Teacher, ClassTimetable, DayOfWeek, dayNames, periods, KOREAN_CONSONANTS, getChosung, matchKorean, formatClassTitle, matchClassCode, getClassMatchScore, getDayFromIndex } from '../lib/timetableUtils';
 import { 
@@ -40,7 +42,7 @@ export const Admin: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   
   // Navigation tab
-  const [adminTab, setAdminTab] = useState<'teachers' | 'classes' | 'duties' | 'settings'>('classes');
+  const [adminTab, setAdminTab] = useState<'teachers' | 'classes' | 'duties' | 'alerts' | 'settings'>('classes');
 
   const [targetAccount, setTargetAccount] = useState<'averver' | 'sangsang'>('averver');
   const [newPassword, setNewPassword] = useState('');
@@ -658,7 +660,23 @@ export const Admin: React.FC = () => {
             }`}
           >
             <CalendarDays className="w-4 h-4 text-emerald-600" />
-            <span>교문 및 급식 지도 관리</span>
+            <span>교문·급식 지도 및 식단표 관리</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setAdminTab('alerts')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              adminTab === 'alerts'
+                ? 'bg-white text-rose-700 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
+            }`}
+          >
+            <Bell className="w-4 h-4 text-rose-600" />
+            <span>수업변경·공강 알림 발송</span>
+            <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded border border-amber-200">
+              준비중
+            </span>
           </button>
 
           <button
@@ -1231,10 +1249,18 @@ export const Admin: React.FC = () => {
         <div className="space-y-6">
           <AdminGateDutyManager teachers={teachers} onMessage={(msg) => setMessage(msg)} />
           <AdminLunchDutyManager onMessage={(msg) => setMessage(msg)} />
+          <AdminMealManager onMessage={(msg) => setMessage(msg)} />
         </div>
       )}
 
-      {/* TAB 4: 계정 및 보안 설정 */}
+      {/* TAB 4: 수업 변경 및 공강 즉시 푸시 알림 발송 */}
+      {adminTab === 'alerts' && (
+        <div className="space-y-6">
+          <AdminScheduleAlertSender teachers={teachers} onMessage={(msg) => setMessage(msg.text)} />
+        </div>
+      )}
+
+      {/* TAB 5: 계정 및 보안 설정 */}
       {adminTab === 'settings' && (
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-8">
           <section>

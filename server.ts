@@ -928,6 +928,107 @@ app.post('/api/lunch-duties', (req, res) => {
   }
 });
 
+// ==========================================
+// School Meals (식단표) Endpoints
+// ==========================================
+const MEAL_DIR = path.join(process.cwd(), 'src', 'data');
+
+app.get('/api/meals', (req, res) => {
+  try {
+    const month = (req.query.month as string) || new Date().toISOString().slice(0, 7); // "YYYY-MM"
+    const filePath = path.join(MEAL_DIR, `meals_${month}.json`);
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath, 'utf-8');
+      return res.setHeader('Content-Type', 'application/json').send(data);
+    }
+    // Fallback to default if 2026-09
+    const defaultPath = path.join(MEAL_DIR, 'defaultMeals.json');
+    if (fs.existsSync(defaultPath)) {
+      const data = JSON.parse(fs.readFileSync(defaultPath, 'utf-8'));
+      if (data.yearMonth === month || !month) {
+        return res.json(data);
+      }
+    }
+    const [y, m] = month.split('-').map(Number);
+    return res.json({
+      yearMonth: month,
+      year: y || 2026,
+      month: m || 9,
+      title: `${y || 2026}년 ${m || 9}월 식단표`,
+      updatedAt: new Date().toISOString(),
+      meals: []
+    });
+  } catch (err) {
+    console.error('Error fetching meals:', err);
+    return res.status(500).json({ error: '식단 데이터를 불러오지 못했습니다.' });
+  }
+});
+
+app.post('/api/meals', (req, res) => {
+  try {
+    const record = req.body;
+    if (!record || !record.yearMonth || !Array.isArray(record.meals)) {
+      return res.status(400).json({ error: '유효한 식단 데이터가 아닙니다.' });
+    }
+    record.updatedAt = new Date().toISOString();
+    const filePath = path.join(MEAL_DIR, `meals_${record.yearMonth}.json`);
+    fs.writeFileSync(filePath, JSON.stringify(record, null, 2), 'utf-8');
+
+    // Also update defaultMeals.json if it is 2026-09
+    if (record.yearMonth === '2026-09') {
+      const defaultPath = path.join(MEAL_DIR, 'defaultMeals.json');
+      fs.writeFileSync(defaultPath, JSON.stringify(record, null, 2), 'utf-8');
+    }
+
+    return res.json({ success: true, count: record.meals.length });
+  } catch (err) {
+    console.error('Error saving meals:', err);
+    return res.status(500).json({ error: '식단 데이터를 저장하지 못했습니다.' });
+  }
+});
+
+// ==========================================
+// Schedule Change & Free Period Push Alerts
+// ==========================================
+const ALERTS_FILE = path.join(process.cwd(), 'src', 'data', 'scheduleAlerts.json');
+
+app.get('/api/schedule-alerts', (req, res) => {
+  try {
+    if (fs.existsSync(ALERTS_FILE)) {
+      const data = fs.readFileSync(ALERTS_FILE, 'utf-8');
+      return res.setHeader('Content-Type', 'application/json').send(data);
+    }
+    return res.json([]);
+  } catch (err) {
+    console.error('Error fetching schedule alerts:', err);
+    return res.status(500).json({ error: '알림 목록을 불러오지 못했습니다.' });
+  }
+});
+
+app.post('/api/schedule-alerts', (req, res) => {
+  try {
+    const newAlert = req.body;
+    if (!newAlert || !newAlert.id || !newAlert.title) {
+      return res.status(400).json({ error: '유효한 알림 데이터가 아닙니다.' });
+    }
+
+    let alerts: any[] = [];
+    if (fs.existsSync(ALERTS_FILE)) {
+      try {
+        alerts = JSON.parse(fs.readFileSync(ALERTS_FILE, 'utf-8'));
+      } catch {}
+    }
+
+    alerts = [newAlert, ...alerts.filter((a: any) => a.id !== newAlert.id)].slice(0, 50);
+    fs.writeFileSync(ALERTS_FILE, JSON.stringify(alerts, null, 2), 'utf-8');
+
+    return res.json({ success: true, alert: newAlert });
+  } catch (err) {
+    console.error('Error saving schedule alert:', err);
+    return res.status(500).json({ error: '알림을 저장하지 못했습니다.' });
+  }
+});
+
 const handleLunchDutyParse = async (req: express.Request, res: express.Response) => {
   try {
     if (!req.file) {
@@ -1100,6 +1201,169 @@ ${csv}
   }
 };
 
+const handleMealParse = async (req: express.Request, res: express.Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '업로드할 파일이 없습니다.' });
+    }
+
+    const mime = (req.file.mimetype || '').toLowerCase();
+    const originalName = (req.file.originalname || '').toLowerCase();
+    const isPdf = mime.includes('pdf') || originalName.endsWith('.pdf');
+    const isImage = mime.includes('image') || /\.(jpe?g|png|webp|gif)$/i.test(originalName);
+    const isExcel = originalName.endsWith('.xlsx') || originalName.endsWith('.xls') || originalName.endsWith('.csv') || mime.includes('spreadsheet') || mime.includes('excel');
+
+    const targetYear = parseInt(req.body.year as string, 10) || 2026;
+    const targetMonth = parseInt(req.body.month as string, 10) || 9;
+
+    // 1. If Excel, try Gemini AI extraction
+    if (isExcel) {
+      let workbook: XLSX.WorkBook;
+      try {
+        workbook = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });
+      } catch {
+        workbook = XLSX.read(req.file.buffer.toString('utf-8'), { type: 'string' });
+      }
+
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          const ai = new GoogleGenAI({
+            apiKey: process.env.GEMINI_API_KEY,
+            httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+          });
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
+
+          const prompt = `
+당신은 한국 학교의 "월별 학교 급식 식단표" 데이터를 구조화하는 전문가입니다.
+다음 CSV 텍스트에서 각 일자별 급식 식단 메뉴(menuItems 배열), 요일, 칼로리(선택), 비고(중간고사, 주말, 휴업일 등)를 추출하여 유효한 JSON 형식으로 출력하세요.
+대상 연도: ${targetYear}년, 월: ${targetMonth}월 (텍스트 내 연/월이 명시되어 있다면 해당 연/월 우선)
+
+반환 형식:
+{
+  "year": ${targetYear},
+  "month": ${targetMonth},
+  "yearMonth": "${targetYear}-${String(targetMonth).padStart(2, '0')}",
+  "title": "${targetYear}년 ${targetMonth}월 식단표",
+  "meals": [
+    {
+      "id": "${targetYear}-${String(targetMonth).padStart(2, '0')}-01",
+      "date": "${targetYear}-${String(targetMonth).padStart(2, '0')}-01",
+      "month": ${targetMonth},
+      "day": 1,
+      "dayOfWeek": "화요일",
+      "menuItems": ["발아현미밥", "아욱된장국", "고추장닭조림", "참나물 생채", "감자채볶음"],
+      "calories": "685 kcal",
+      "note": ""
+    }
+  ]
+}
+
+규칙:
+1. date는 "YYYY-MM-DD" 형식 (예: "2026-09-01")
+2. dayOfWeek는 "월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일" 중 하나
+3. 메뉴 항목에서 알레르기 유발물질 번호(예: (5.6), 1.2.3 등)는 제거하고 순수한 요리명만 menuItems 배열에 넣으세요.
+4. 중간고사, 기말고사, 재량휴업일, 개학식, 주말 등 특이사항이 있으면 note에 기재하세요.
+5. 마크다운이나 기타 설명 없이 순수 JSON만 반환하세요.
+
+--- [데이터 원본] ---
+${csv}
+`;
+
+          const aiRes = await ai.models.generateContent({
+            model: 'gemini-3.6-flash',
+            contents: [prompt],
+            config: { responseMimeType: 'application/json' }
+          });
+
+          if (aiRes.text) {
+            let cleanJson = aiRes.text.trim();
+            if (cleanJson.startsWith('```json')) cleanJson = cleanJson.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+            else if (cleanJson.startsWith('```')) cleanJson = cleanJson.replace(/^```\s*/, '').replace(/\s*```$/, '');
+            const parsed = JSON.parse(cleanJson);
+            if (parsed && Array.isArray(parsed.meals) && parsed.meals.length > 0) {
+              return res.json({ success: true, record: parsed });
+            }
+          }
+        } catch (aiErr) {
+          console.warn('[Meal] Gemini Excel parse fallback:', aiErr);
+        }
+      }
+    }
+
+    // 2. If PDF or Image
+    if ((isPdf || isImage) && process.env.GEMINI_API_KEY) {
+      try {
+        const ai = new GoogleGenAI({
+          apiKey: process.env.GEMINI_API_KEY,
+          httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+        });
+
+        const prompt = `
+이 문서는 한국 학교의 "월간 학교 급식 식단표"입니다.
+표의 일자(일), 요일, 제공되는 요리명/메뉴 목록, 칼로리, 특이사항(시험, 휴업일 등)을 읽어서 정확한 JSON 형식으로 추출하세요.
+기본 연도: ${targetYear}년, 월: ${targetMonth}월
+
+반환 형식:
+{
+  "year": ${targetYear},
+  "month": ${targetMonth},
+  "yearMonth": "${targetYear}-${String(targetMonth).padStart(2, '0')}",
+  "title": "${targetYear}년 ${targetMonth}월 식단표",
+  "meals": [
+    {
+      "id": "${targetYear}-${String(targetMonth).padStart(2, '0')}-01",
+      "date": "${targetYear}-${String(targetMonth).padStart(2, '0')}-01",
+      "month": ${targetMonth},
+      "day": 1,
+      "dayOfWeek": "화요일",
+      "menuItems": ["발아현미밥", "아욱된장국", "고추장닭조림", "참나물 생채", "감자채볶음"],
+      "calories": "685 kcal",
+      "note": ""
+    }
+  ]
+}
+
+알레르기 번호는 메뉴명에서 제외하고 순수 음식명만 남겨주세요.
+순수 JSON만 출력하세요.
+`;
+
+        const base64Data = req.file.buffer.toString('base64');
+        const filePart = {
+          inlineData: {
+            data: base64Data,
+            mimeType: isPdf ? 'application/pdf' : (req.file.mimetype || 'image/png')
+          }
+        };
+
+        const aiRes = await ai.models.generateContent({
+          model: 'gemini-3.6-flash',
+          contents: [filePart, prompt],
+          config: { responseMimeType: 'application/json' }
+        });
+
+        if (aiRes.text) {
+          let cleanJson = aiRes.text.trim();
+          if (cleanJson.startsWith('```json')) cleanJson = cleanJson.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+          else if (cleanJson.startsWith('```')) cleanJson = cleanJson.replace(/^```\s*/, '').replace(/\s*```$/, '');
+          const parsed = JSON.parse(cleanJson);
+          if (parsed && Array.isArray(parsed.meals) && parsed.meals.length > 0) {
+            return res.json({ success: true, record: parsed });
+          }
+        }
+      } catch (err) {
+        console.error('[Meal] Gemini PDF/Image parse error:', err);
+      }
+    }
+
+    return res.status(400).json({ error: '식단 파일을 분석할 수 없습니다. 엑셀 파일 형식을 확인해주세요.' });
+  } catch (err) {
+    console.error('Error parsing meal file:', err);
+    return res.status(500).json({ error: err instanceof Error ? err.message : '파일 분석 중 오류가 발생했습니다.' });
+  }
+};
+
+app.post('/api/parse-meal', upload.single('file'), handleMealParse);
 app.post('/api/parse-lunch-duty', upload.single('file'), handleLunchDutyParse);
 
 app.post('/api/parse-timetable', upload.single('file'), handleTimetableParse);

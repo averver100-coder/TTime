@@ -25,5 +25,17 @@ service cloud.firestore {
     match /lunchDuties/{dutyId} {
       allow read, write: if true;
     }
+
+    match /meals/{mealId} {
+      allow read, write: if true;
+    }
+
+    match /scheduleAlerts/{alertId} {
+      allow read, write: if true;
+    }
+
+    match /fcmTokens/{tokenId} {
+      allow read, write: if true;
+    }
   }
 }

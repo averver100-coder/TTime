@@ -1,0 +1,30 @@
+[
+  {
+    "id": "alert_sample_01",
+    "type": "FREE_PERIOD",
+    "title": "[공강 안내] 화요일 3교시 2-3 수업 공강 안내",
+    "message": "김철수 선생님, 화요일 3교시 예정되어 있던 [2-3 (미디어실)] 수업이 공강(학생 학급 자습)으로 변경되었습니다.",
+    "targetTeacher": "김철수",
+    "dayOfWeek": "화요일",
+    "period": 3,
+    "originalClass": "2-3 (미디어실)",
+    "newClass": "공강 (학생 자습)",
+    "sender": "교무기획부",
+    "createdAt": 1790071200000,
+    "readBy": []
+  },
+  {
+    "id": "alert_sample_02",
+    "type": "PERIOD_CHANGE",
+    "title": "[수업 장소 변경] 화요일 4교시 제2컴퓨터실 이동 수업",
+    "message": "이영희 선생님, 화요일 4교시 1-2반 수업이 본관 3층 컴퓨터실 설비 점검으로 인해 신관 4층 [제2컴퓨터실]로 장소 변경되었습니다.",
+    "targetTeacher": "이영희",
+    "dayOfWeek": "화요일",
+    "period": 4,
+    "originalClass": "1-2 (컴퓨터1실)",
+    "newClass": "1-2 (제2컴퓨터실)",
+    "sender": "교무기획부",
+    "createdAt": 1790067600000,
+    "readBy": []
+  }
+]

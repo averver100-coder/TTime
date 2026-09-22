@@ -23,6 +23,9 @@ import { PWAInstallButton } from '../components/PWAInstallButton';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { TodayGateDuty } from '../components/TodayGateDuty';
 import { TodayLunchDuty } from '../components/TodayLunchDuty';
+import { TodayMeal } from '../components/TodayMeal';
+import { ScheduleAlertBanner } from '../components/ScheduleAlertBanner';
+import { NotificationCenterModal } from '../components/NotificationCenterModal';
 import { ClassTimetableCard } from '../components/ClassTimetableCard';
 import { BookmarkSection } from '../components/BookmarkSection';
 import { TodayScheduleNotificationToast } from '../components/TodayScheduleNotificationToast';
@@ -65,6 +68,7 @@ export const Home: React.FC = () => {
   const [showAllDirectory, setShowAllDirectory] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isTodayNotificationOpen, setIsTodayNotificationOpen] = useState(false);
+  const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
 
   // Auto show today's schedule notification on app startup
   useEffect(() => {
@@ -899,6 +903,15 @@ export const Home: React.FC = () => {
               </button>
             )}
             <PWAInstallButton />
+            <button
+              type="button"
+              onClick={() => setIsNotificationCenterOpen(true)}
+              className="relative p-2 text-gray-500 hover:text-rose-600 hover:bg-rose-50 rounded-full transition cursor-pointer"
+              title="수업 변경 및 공강 알림 센터"
+            >
+              <Bell className="w-5 h-5" />
+              <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-white animate-pulse" />
+            </button>
             <button 
               onClick={() => navigate('/admin')}
               className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition"
@@ -943,6 +956,20 @@ export const Home: React.FC = () => {
         onClose={() => setIsTodayNotificationOpen(false)}
         onSelectTeacher={handleSelectTeacherByName}
         onSelectClass={handleSelectClassByCode}
+      />
+
+      {/* Real-time Schedule Change & Free Period Push Banner */}
+      <ScheduleAlertBanner
+        currentTeacherName={selectedTeacher?.name}
+        onSelectTeacher={handleSelectTeacherByName}
+      />
+
+      {/* Schedule Alerts & Free Period Center Modal */}
+      <NotificationCenterModal
+        isOpen={isNotificationCenterOpen}
+        onClose={() => setIsNotificationCenterOpen(false)}
+        onSelectTeacher={handleSelectTeacherByName}
+        currentTeacherName={selectedTeacher?.name}
       />
 
       {/* Toast Alert */}
@@ -1574,6 +1601,9 @@ export const Home: React.FC = () => {
               teachers={teachers} 
               onSelectTeacher={handleSelectTeacher} 
             />
+
+            {/* 오늘의 급식 코너 */}
+            <TodayMeal />
           </div>
         ) : null}
       </main>
