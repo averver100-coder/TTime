@@ -27,30 +27,6 @@ export const TodayMeal: React.FC<TodayMealProps> = () => {
   const [dayOffset, setDayOffset] = useState<number>(0);
   const [showFullSchedule, setShowFullSchedule] = useState<boolean>(false);
 
-  // Load meal schedule
-  useEffect(() => {
-    let isMounted = true;
-    const loadData = async () => {
-      try {
-        const kst = getKSTDate();
-        const record = await fetchMealMonth(kst.yearMonth);
-        if (isMounted) {
-          setMealRecord(record);
-        }
-      } catch (err) {
-        console.error('Failed to load meals:', err);
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
-
-    loadData();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
   // Compute targeted date based on offset
   const targetedDateInfo = useMemo(() => {
     const kst = getKSTDate();
@@ -66,9 +42,11 @@ export const TodayMeal: React.FC<TodayMealProps> = () => {
     const mPad = String(month).padStart(2, '0');
     const dPad = String(day).padStart(2, '0');
     const dateStr = `${year}-${mPad}-${dPad}`;
+    const yearMonth = `${year}-${mPad}`;
 
     return {
       dateStr,
+      yearMonth,
       year,
       month,
       day,
@@ -77,6 +55,34 @@ export const TodayMeal: React.FC<TodayMealProps> = () => {
       isWeekend: baseDate.getDay() === 0 || baseDate.getDay() === 6,
     };
   }, [dayOffset]);
+
+  // Load meal schedule when yearMonth of targeted date changes
+  useEffect(() => {
+    let isMounted = true;
+    const targetYM = targetedDateInfo.yearMonth;
+
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const record = await fetchMealMonth(targetYM);
+        if (isMounted) {
+          setMealRecord(record);
+        }
+      } catch (err) {
+        console.error('Failed to load meals for', targetYM, err);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [targetedDateInfo.yearMonth]);
 
   // Find meal for targeted date
   const targetedMeal: MealDay | null = useMemo(() => {
@@ -114,10 +120,17 @@ export const TodayMeal: React.FC<TodayMealProps> = () => {
     return { label: '부찬', color: 'bg-indigo-100 text-indigo-800 border-indigo-200' };
   };
 
-  const handleSelectSpecificDay = (dayNum: number) => {
+  const handleSelectSpecificDay = (selectedDay: number, selectedMonth?: number, selectedYear?: number) => {
     const kst = getKSTDate();
-    const diff = dayNum - kst.day;
-    setDayOffset(diff);
+    const targetY = selectedYear || targetedDateInfo.year;
+    const targetM = (selectedMonth || targetedDateInfo.month) - 1; // 0-indexed for Date
+    const targetDate = new Date(targetY, targetM, selectedDay);
+    const todayDate = new Date(kst.year, kst.month - 1, kst.day);
+    
+    // Calculate difference in days
+    const diffTime = targetDate.getTime() - todayDate.getTime();
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+    setDayOffset(diffDays);
   };
 
   return (
@@ -345,7 +358,7 @@ export const TodayMeal: React.FC<TodayMealProps> = () => {
                       return (
                         <tr
                           key={m.id}
-                          onClick={() => handleSelectSpecificDay(m.day)}
+                          onClick={() => handleSelectSpecificDay(m.day, m.month || targetedDateInfo.month, targetedDateInfo.year)}
                           className={`cursor-pointer transition hover:bg-orange-50/70 ${
                             isSelected ? 'bg-orange-100/70 font-semibold' : ''
                           }`}
