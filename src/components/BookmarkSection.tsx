@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Star, GraduationCap, User, X, Sparkles, Trash2 } from 'lucide-react';
+import { Star, GraduationCap, User, X, Sparkles, Trash2, Bell } from 'lucide-react';
 import { BookmarkItem } from '../hooks/useBookmarks';
 
 interface BookmarkSectionProps {
@@ -8,6 +8,7 @@ interface BookmarkSectionProps {
   onSelectClass: (classCode: string) => void;
   onRemoveBookmark: (type: 'teacher' | 'class', id: string) => void;
   onClearAll?: () => void;
+  onOpenTodayNotification?: () => void;
 }
 
 export const BookmarkSection: React.FC<BookmarkSectionProps> = ({
@@ -16,6 +17,7 @@ export const BookmarkSection: React.FC<BookmarkSectionProps> = ({
   onSelectClass,
   onRemoveBookmark,
   onClearAll,
+  onOpenTodayNotification,
 }) => {
   const [filter, setFilter] = useState<'ALL' | 'teacher' | 'class'>('ALL');
 
@@ -71,6 +73,18 @@ export const BookmarkSection: React.FC<BookmarkSectionProps> = ({
 
         {/* Filter Chips & Clear Option */}
         <div className="flex items-center gap-1.5 self-start sm:self-auto flex-wrap">
+          {onOpenTodayNotification && (
+            <button
+              type="button"
+              onClick={onOpenTodayNotification}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl border border-blue-200 transition shadow-2xs active:scale-95 cursor-pointer"
+              title="오늘의 수업시간표 알림 팝업창 다시 열기"
+            >
+              <Bell className="w-3.5 h-3.5 text-blue-600" />
+              <span>오늘 알림 팝업</span>
+            </button>
+          )}
+
           {teacherCount > 0 && classCount > 0 && (
             <div className="flex items-center bg-gray-100 p-0.5 rounded-lg text-[11px] font-bold">
               <button

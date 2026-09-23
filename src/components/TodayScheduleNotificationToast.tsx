@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Bell, 
   BellRing, 
@@ -58,6 +58,9 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
   const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ mouseX: number; mouseY: number; initialX: number; initialY: number } | null>(null);
+
+  // Selected bookmark tab index (for users with multiple bookmarks like 1 teacher + 2 classes)
+  const [selectedBookmarkIndex, setSelectedBookmarkIndex] = useState(0);
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     // Only primary mouse button (button 0)
@@ -142,10 +145,36 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
   const isWeekend = !todayDay;
   const currentMins = getCurrentTimeMinutes(currentTime);
 
+  // Sort bookmarks: Teachers always come first (default tab 0), Classes come second (tab 1, 2...)
+  const sortedBookmarks = useMemo(() => {
+    return [...bookmarks].sort((a, b) => {
+      // 1. Teachers first, classes second
+      if (a.type !== b.type) {
+        return a.type === 'teacher' ? -1 : 1;
+      }
+      // 2. Class sorting: numeric by classCode (e.g. 101 < 102 < 201)
+      if (a.type === 'class') {
+        const aNum = parseInt(a.id, 10) || 0;
+        const bNum = parseInt(b.id, 10) || 0;
+        return aNum - bNum;
+      }
+      // 3. Teacher sorting: Korean alphabetical
+      return (a.title || a.id).localeCompare(b.title || b.id, 'ko');
+    });
+  }, [bookmarks]);
+
+  // When notification opens, reset selected tab to 0 (default to teacher first)
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedBookmarkIndex(0);
+    }
+  }, [isOpen]);
+
   // Determine what to notify:
-  // 1. Look for first bookmarked teacher or class
+  // 1. Look for selected or first bookmarked teacher or class
   // 2. If none, general school schedule
-  const primaryBookmark = bookmarks.length > 0 ? bookmarks[0] : null;
+  const safeIndex = sortedBookmarks.length > 0 ? Math.min(selectedBookmarkIndex, sortedBookmarks.length - 1) : 0;
+  const activeBookmark = sortedBookmarks.length > 0 ? sortedBookmarks[safeIndex] : null;
 
   let scheduleTitle = '';
   let scheduleSubtitle = '';
@@ -161,8 +190,8 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
     const maxPeriod = (todayDay === 'Wed' || todayDay === 'Thu' || todayDay === 'Fri') ? 6 : 7;
     const applicablePeriods = periods.filter(p => p.period <= maxPeriod);
 
-    if (primaryBookmark && primaryBookmark.type === 'teacher') {
-      const teacher = teachers.find(t => t.name === primaryBookmark.id);
+    if (activeBookmark && activeBookmark.type === 'teacher') {
+      const teacher = teachers.find(t => t.name === activeBookmark.id);
       if (teacher) {
         targetType = 'teacher';
         targetId = teacher.name;
@@ -190,8 +219,8 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
           scheduleSubtitle = `오늘(${dayNames[todayDay]})은 배정된 수업이 없는 날입니다.`;
         }
       }
-    } else if (primaryBookmark && primaryBookmark.type === 'class') {
-      const classItem = classes.find(c => c.classCode === primaryBookmark.id);
+    } else if (activeBookmark && activeBookmark.type === 'class') {
+      const classItem = classes.find(c => c.classCode === activeBookmark.id);
       if (classItem) {
         targetType = 'class';
         targetId = classItem.classCode;
@@ -320,9 +349,10 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
             </div>
             <span className="text-xs font-black tracking-wide flex items-center gap-1.5 truncate">
               <span>오늘의 수업 시간표 알림</span>
-              {primaryBookmark && (
+              {activeBookmark && (
                 <span className="bg-amber-400 text-amber-950 text-[10px] px-1.5 py-0.2 rounded-full font-extrabold flex items-center gap-0.5 shrink-0">
-                  <Star className="w-2.5 h-2.5 fill-amber-950" /> 즐겨찾기
+                  <Star className="w-2.5 h-2.5 fill-amber-950" />
+                  {sortedBookmarks.length > 1 ? `즐겨찾기 ${safeIndex + 1}/${sortedBookmarks.length}` : '즐겨찾기'}
                 </span>
               )}
             </span>
@@ -360,6 +390,40 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
 
         {/* Content Body */}
         <div className="p-4 space-y-3">
+          {/* Multiple Bookmarks Switcher Tabs: Teachers always first, Classes second */}
+          {sortedBookmarks.length > 1 && (
+            <div className="bg-slate-100/90 p-1 rounded-xl flex items-center gap-1 overflow-x-auto scrollbar-none">
+              {sortedBookmarks.map((bm, idx) => {
+                const isSelected = idx === safeIndex;
+                const isTeacher = bm.type === 'teacher';
+                const label = isTeacher ? `${bm.title} 선생님` : (bm.title || formatClassTitle(bm.id));
+                return (
+                  <button
+                    key={`${bm.type}-${bm.id}`}
+                    type="button"
+                    onClick={() => {
+                      setSelectedBookmarkIndex(idx);
+                      setProgress(100);
+                    }}
+                    className={`flex-1 min-w-[100px] py-1.5 px-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer truncate ${
+                      isSelected
+                        ? 'bg-white text-blue-700 shadow-2xs ring-1 ring-black/5'
+                        : 'text-gray-500 hover:text-gray-900 hover:bg-white/60'
+                    }`}
+                    title={`${isTeacher ? '선생님' : '학급'} 시간표: ${label}`}
+                  >
+                    {isTeacher ? (
+                      <User className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-blue-600' : 'text-gray-400'}`} />
+                    ) : (
+                      <GraduationCap className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-blue-600' : 'text-gray-400'}`} />
+                    )}
+                    <span className="truncate">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* Title & Subtitle */}
           <div>
             <div className="flex items-center gap-1.5 flex-wrap">

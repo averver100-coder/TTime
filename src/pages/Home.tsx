@@ -1327,6 +1327,15 @@ export const Home: React.FC = () => {
                 <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
                   <button
                     type="button"
+                    onClick={() => setIsTodayNotificationOpen(true)}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3.5 py-2 rounded-xl border border-indigo-200 transition shadow-2xs active:scale-95 cursor-pointer"
+                    title="오늘의 수업시간표 알림 팝업창 열기"
+                  >
+                    <Bell className="w-4 h-4 text-indigo-600" />
+                    <span>오늘 알림</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleExportTeacherTimetable}
                     disabled={isExportingTeacher}
                     className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-700 bg-gray-50 hover:bg-gray-100 px-3.5 py-2 rounded-xl border border-gray-200 transition shadow-2xs active:scale-95 disabled:opacity-50 cursor-pointer"
@@ -1443,6 +1452,7 @@ export const Home: React.FC = () => {
               bookmarks={bookmarks}
               onSelectTeacher={handleSelectTeacherByName}
               onSelectClass={handleSelectClassByCode}
+              onOpenTodayNotification={() => setIsTodayNotificationOpen(true)}
               onRemoveBookmark={(type, id) => {
                 removeBookmark(type, id);
                 setToastMessage('⭐ 즐겨찾기가 해제되었습니다.');
@@ -1640,6 +1650,29 @@ export const Home: React.FC = () => {
 
       {/* Subtle Copyright Notice */}
       <Footer />
+
+      {/* Floating Quick Action Button to Reopen Today's Schedule Popup */}
+      {!isTodayNotificationOpen && (
+        <button
+          type="button"
+          onClick={() => setIsTodayNotificationOpen(true)}
+          className="fixed bottom-6 right-4 sm:right-6 z-40 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white pl-3.5 pr-4 py-2.5 rounded-full shadow-xl shadow-blue-500/25 border-2 border-white/90 flex items-center gap-2 font-bold text-xs sm:text-sm transition-all duration-200 hover:scale-105 active:scale-95 group cursor-pointer animate-in fade-in slide-in-from-bottom-3"
+          title="오늘의 수업시간표 알림 팝업창 다시 열기"
+        >
+          <div className="relative">
+            <Bell className="w-4 h-4 text-yellow-300 animate-bounce" />
+            {bookmarks.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-400 rounded-full border border-white animate-ping" />
+            )}
+          </div>
+          <span>오늘 시간표 알림</span>
+          {bookmarks.length > 0 && (
+            <span className="bg-amber-400 text-amber-950 text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-2xs">
+              ⭐ {bookmarks.length}
+            </span>
+          )}
+        </button>
+      )}
     </div>
   );
 };
