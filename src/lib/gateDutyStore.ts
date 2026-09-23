@@ -83,15 +83,34 @@ export async function fetchGateDutyMonth(targetYearMonth?: string): Promise<Gate
   const kst = getKSTDate();
   const yearMonth = targetYearMonth || kst.yearMonth;
   let record: GateDutyMonthRecord | null = null;
+  const cacheKey = `ssamtime_swr_gate_${yearMonth}`;
 
   // 1. If matching default bundled data, start with it
   if (defaultDutyData && defaultDutyData.yearMonth === yearMonth) {
     record = JSON.parse(JSON.stringify(defaultDutyData));
   }
 
-  // 2. Check local API
+  // 2. Read from localStorage SWR cache for instant offline rendering in dead zones
+  if (typeof window !== 'undefined') {
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && Array.isArray(parsed.duties)) {
+          record = parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed reading gate duty cache:', e);
+    }
+  }
+
+  // 3. Check local API with abort timeout
   try {
-    const res = await fetch(`/api/gate-duties?month=${encodeURIComponent(yearMonth)}`).catch(() => null);
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = setTimeout(() => controller?.abort(), 2000);
+    const res = await fetch(`/api/gate-duties?month=${encodeURIComponent(yearMonth)}`, { signal: controller?.signal }).catch(() => null);
+    clearTimeout(timeoutId);
     if (res && res.ok) {
       const data = await res.json().catch(() => null);
       if (data && Array.isArray(data.duties) && data.duties.length > 0) {
@@ -99,21 +118,29 @@ export async function fetchGateDutyMonth(targetYearMonth?: string): Promise<Gate
       }
     }
   } catch (err) {
-    console.warn('Failed to fetch gate duties from local API:', err);
+    console.warn('Failed to fetch gate duties from local API (offline / shadow zone):', err);
   }
 
-  // 3. Check Firestore for authoritative cloud record
+  // 4. Check Firestore for authoritative cloud record with timeout
   try {
-    const docRef = doc(db, 'gateDuties', yearMonth);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      const cloudData = snap.data() as GateDutyMonthRecord;
-      if (cloudData && Array.isArray(cloudData.duties)) {
-        record = cloudData;
+    const firestorePromise = (async () => {
+      const docRef = doc(db, 'gateDuties', yearMonth);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const cloudData = snap.data() as GateDutyMonthRecord;
+        if (cloudData && Array.isArray(cloudData.duties)) {
+          record = cloudData;
+        }
       }
-    }
+    })();
+
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Firestore timeout')), 2500)
+    );
+
+    await Promise.race([firestorePromise, timeoutPromise]);
   } catch (err) {
-    console.warn('Failed to fetch gate duties from Firestore:', err);
+    console.warn('Failed to fetch gate duties from Firestore (serving cached SWR state):', err);
   }
 
   // Fallback if nothing found
@@ -122,7 +149,7 @@ export async function fetchGateDutyMonth(targetYearMonth?: string): Promise<Gate
       return defaultDutyData as GateDutyMonthRecord;
     }
     const [y, m] = yearMonth.split('-').map(Number);
-    return {
+    record = {
       yearMonth,
       year: y || kst.year,
       month: m || kst.month,
@@ -130,6 +157,15 @@ export async function fetchGateDutyMonth(targetYearMonth?: string): Promise<Gate
       updatedAt: new Date().toISOString(),
       duties: [],
     };
+  }
+
+  // Save to SWR localStorage cache
+  if (typeof window !== 'undefined' && record) {
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify(record));
+    } catch (e) {
+      console.warn('Failed writing gate duty SWR cache:', e);
+    }
   }
 
   return record;

@@ -18,6 +18,8 @@ import {
   Star,
   GraduationCap,
   Bell,
+  BellRing,
+  WifiOff,
   Download,
   Loader2
 } from 'lucide-react';
@@ -110,6 +112,30 @@ export const Home: React.FC = () => {
     removeBookmark,
     clearAllBookmarks
   } = useBookmarks();
+
+  // Network connectivity status for dead zones (basement special room, gym)
+  const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      // Revalidate in background when connection is restored
+      fetchTeachers().then(data => setTeachers(data));
+      fetchClassTimetables().then(data => {
+        if (Array.isArray(data) && data.length > 0) setClasses(data);
+      });
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // Quick class grade filter
   const [activeGradeFilter, setActiveGradeFilter] = useState<'all' | 1 | 2 | 3>('all');
@@ -420,6 +446,107 @@ export const Home: React.FC = () => {
 
   const todayDay = getDayFromIndex(new Date().getDay());
 
+  // Next class 5-minute reminder calculation ("5분 뒤 2-4반 수업입니다")
+  const upcoming5MinAlert = useMemo(() => {
+    const currentDay = getDayFromIndex(currentTime.getDay());
+    if (!currentDay) return null;
+    const currentMins = getCurrentTimeMinutes(currentTime);
+
+    // 1. Check selected teacher first
+    if (selectedTeacher) {
+      const todayTable = selectedTeacher.timetable[currentDay] || {};
+      for (const p of periods) {
+        const room = todayTable[p.period];
+        if (!room) continue;
+        const startMins = parseTimeString(p.start);
+        const diff = startMins - currentMins;
+        if (diff > 0 && diff <= 5) {
+          return {
+            id: selectedTeacher.name,
+            type: 'teacher' as const,
+            title: `${selectedTeacher.name} 선생님`,
+            room: formatClassroomShort(room),
+            period: p.period,
+            start: p.start,
+            diff,
+          };
+        }
+      }
+    }
+
+    // 2. Check bookmarked teachers
+    for (const b of bookmarks) {
+      if (b.type === 'teacher') {
+        const t = teachers.find(item => item.name === b.id);
+        if (!t) continue;
+        const todayTable = t.timetable[currentDay] || {};
+        for (const p of periods) {
+          const room = todayTable[p.period];
+          if (!room) continue;
+          const startMins = parseTimeString(p.start);
+          const diff = startMins - currentMins;
+          if (diff > 0 && diff <= 5) {
+            return {
+              id: t.name,
+              type: 'teacher' as const,
+              title: `${t.name} 선생님`,
+              room: formatClassroomShort(room),
+              period: p.period,
+              start: p.start,
+              diff,
+            };
+          }
+        }
+      } else if (b.type === 'class') {
+        const c = classes.find(item => item.classCode === b.id);
+        if (!c) continue;
+        const todayTable = c.timetable[currentDay] || {};
+        for (const p of periods) {
+          const teacherName = todayTable[p.period];
+          if (!teacherName) continue;
+          const startMins = parseTimeString(p.start);
+          const diff = startMins - currentMins;
+          if (diff > 0 && diff <= 5) {
+            return {
+              id: c.classCode,
+              type: 'class' as const,
+              title: `${c.grade}학년 ${c.classNum}반`,
+              room: `${c.grade}-${c.classNum}반`,
+              period: p.period,
+              start: p.start,
+              diff,
+            };
+          }
+        }
+      }
+    }
+
+    return null;
+  }, [currentTime, selectedTeacher, bookmarks, teachers, classes]);
+
+  // Dispatch browser push notification once per 5-minute reminder window
+  const sent5MinRemindersRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!upcoming5MinAlert) return;
+    const dateStr = currentTime.toISOString().split('T')[0];
+    const reminderKey = `${dateStr}_${upcoming5MinAlert.id}_p${upcoming5MinAlert.period}`;
+
+    if (!sent5MinRemindersRef.current.has(reminderKey)) {
+      sent5MinRemindersRef.current.add(reminderKey);
+
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification(`⏰ 5분 뒤 ${upcoming5MinAlert.room} 수업입니다`, {
+            body: `${upcoming5MinAlert.title}, ${upcoming5MinAlert.period}교시(${upcoming5MinAlert.start}) 수업 시작 5분 전입니다. 교실 이동을 준비해 주세요!`,
+            icon: '/favicon.ico',
+          });
+        } catch (e) {
+          console.warn('Browser push notification error:', e);
+        }
+      }
+    }
+  }, [upcoming5MinAlert, currentTime]);
+
   const renderCurrentStatus = () => {
     if (!selectedTeacher) return null;
 
@@ -507,6 +634,31 @@ export const Home: React.FC = () => {
               : '쉬는 시간'}
           </span>
         </div>
+
+        {/* Next Class 5-Min Reminder Banner */}
+        {nextUpcomingPeriodWithClass && (parseTimeString(nextUpcomingPeriodWithClass.start) - currentMins) > 0 && (parseTimeString(nextUpcomingPeriodWithClass.start) - currentMins) <= 5 && (
+          <div className="p-4 rounded-xl border border-amber-300 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white shadow-md mb-5 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                <Bell className="w-5 h-5 text-white animate-bounce" />
+              </div>
+              <div>
+                <div className="font-extrabold text-sm sm:text-base flex items-center gap-1.5 flex-wrap">
+                  <span>⏰ {(parseTimeString(nextUpcomingPeriodWithClass.start) - currentMins) === 5 ? '5분 뒤' : `${parseTimeString(nextUpcomingPeriodWithClass.start) - currentMins}분 뒤`} {formatClassroom(todayTimetable[nextUpcomingPeriodWithClass.period])} 수업입니다</span>
+                  <span className="bg-white text-amber-950 text-[10px] font-black px-2 py-0.5 rounded shadow-2xs">
+                    {nextUpcomingPeriodWithClass.period}교시 ({nextUpcomingPeriodWithClass.start})
+                  </span>
+                </div>
+                <p className="text-xs text-amber-100 mt-0.5">
+                  {selectedTeacher.name} 선생님, 수업 교재를 챙겨 교실로 이동해 주세요!
+                </p>
+              </div>
+            </div>
+            <span className="text-xs font-black bg-white/20 px-2.5 py-1 rounded-lg border border-white/30 shrink-0 hidden sm:inline-block">
+              곧 시작
+            </span>
+          </div>
+        )}
 
         {/* Current State Banner */}
         {currentPeriod ? (
@@ -965,15 +1117,27 @@ export const Home: React.FC = () => {
           </span>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setIsTodayNotificationOpen(true)}
-          className="inline-flex items-center gap-1 bg-blue-500/80 hover:bg-blue-700 text-white px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-blue-300/40 shadow-2xs transition active:scale-95 cursor-pointer"
-          title="오늘의 수업 시간표 알림 보기"
-        >
-          <Bell className="w-3 h-3 text-yellow-300" />
-          <span>오늘 시간표 알림</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {!isOnline && (
+            <span 
+              className="inline-flex items-center gap-1 bg-amber-400 text-amber-950 px-2 py-0.5 rounded-full text-[10px] font-extrabold shadow-xs"
+              title="네트워크 단절 시에도 캐시된 시간표가 끊김 없이 즉시 로딩됩니다"
+            >
+              <WifiOff className="w-3 h-3 text-amber-950" />
+              <span>오프라인 (캐시 모드)</span>
+            </span>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setIsTodayNotificationOpen(true)}
+            className="inline-flex items-center gap-1 bg-blue-500/80 hover:bg-blue-700 text-white px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-blue-300/40 shadow-2xs transition active:scale-95 cursor-pointer"
+            title="오늘의 수업 시간표 알림 보기"
+          >
+            <Bell className="w-3 h-3 text-yellow-300" />
+            <span>오늘 시간표 알림</span>
+          </button>
+        </div>
       </div>
 
       {/* Today's Schedule Notification Toast (Startup & On-demand) */}
@@ -996,6 +1160,36 @@ export const Home: React.FC = () => {
       )}
 
       <main className="max-w-2xl mx-auto p-4 mt-2">
+        {/* Next Class 5-Min Reminder Banner ("5분 뒤 2-4반 수업입니다") */}
+        {upcoming5MinAlert && (
+          <div
+            onClick={() => {
+              if (upcoming5MinAlert.type === 'teacher') handleSelectTeacherByName(upcoming5MinAlert.id);
+              else handleSelectClassByCode(upcoming5MinAlert.id);
+            }}
+            className="mb-4 p-3.5 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white rounded-2xl shadow-md border border-amber-300 flex items-center justify-between gap-3 cursor-pointer hover:shadow-lg transition active:scale-[0.99] animate-in slide-in-from-top-2"
+          >
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+              <span className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                <BellRing className="w-5 h-5 text-white animate-bounce" />
+              </span>
+              <div className="min-w-0">
+                <div className="text-xs sm:text-sm font-extrabold flex items-center gap-1.5 flex-wrap truncate">
+                  <span>⏰ {upcoming5MinAlert.diff === 5 ? '5분 뒤' : `${upcoming5MinAlert.diff}분 뒤`} {upcoming5MinAlert.room} 수업입니다</span>
+                  <span className="bg-white text-amber-950 text-[10px] font-black px-1.5 py-0.5 rounded shadow-2xs">
+                    {upcoming5MinAlert.period}교시 ({upcoming5MinAlert.start})
+                  </span>
+                </div>
+                <div className="text-[11px] text-amber-100 truncate mt-0.5">
+                  {upcoming5MinAlert.title} · 교재를 챙겨 교실로 이동해 주세요
+                </div>
+              </div>
+            </div>
+            <span className="text-xs font-bold bg-white text-amber-900 px-3 py-1.5 rounded-xl shadow-2xs shrink-0 whitespace-nowrap">
+              시간표 확인 →
+            </span>
+          </div>
+        )}
         {/* Main Teacher & Class Timetable Search Card (Highlighted) */}
         <div className="bg-white rounded-3xl p-5 sm:p-6 border-2 border-blue-500/80 shadow-lg shadow-blue-500/10 mb-6 relative">
           <div className="flex items-center justify-between mb-3.5 flex-wrap gap-2">

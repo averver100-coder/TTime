@@ -4,12 +4,43 @@ import { Teacher, ClassTimetable } from './timetableUtils';
 import defaultTeachersData from '../data/defaultTeachers.json';
 import defaultClassTimetablesData from '../data/defaultClassTimetables.json';
 
+export const SWR_TEACHERS_CACHE_KEY = 'ssamtime_swr_teachers_v2';
+export const SWR_CLASSES_CACHE_KEY = 'ssamtime_swr_classes_v2';
+
 export function getDefaultTeachers(): Teacher[] {
+  // Stale-While-Revalidate: Instant offline cache hit for dead zones (basement, gym)
+  if (typeof window !== 'undefined') {
+    try {
+      const cached = localStorage.getItem(SWR_TEACHERS_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed reading teachers cache:', e);
+    }
+  }
   const list = (defaultTeachersData as Teacher[]) || [];
   return [...list].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
 }
 
 export function getDefaultClassTimetables(): ClassTimetable[] {
+  // Stale-While-Revalidate: Instant offline cache hit for dead zones (basement, gym)
+  if (typeof window !== 'undefined') {
+    try {
+      const cached = localStorage.getItem(SWR_CLASSES_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed reading classes cache:', e);
+    }
+  }
   const list = (defaultClassTimetablesData as ClassTimetable[]) || [];
   return [...list].sort((a, b) => a.classCode.localeCompare(b.classCode, 'ko', { numeric: true }));
 }
@@ -119,10 +150,37 @@ export async function fetchTeachers(): Promise<Teacher[]> {
     }
   });
 
-  // 2. Overlay from local Express API
+  // 2. Overlay from SWR localStorage cache (immediate offline availability)
+  if (typeof window !== 'undefined') {
+    try {
+      const cached = localStorage.getItem(SWR_TEACHERS_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((t: Teacher) => {
+            if (t && t.name) {
+              teacherMap.set(t.name, {
+                id: t.name,
+                name: t.name,
+                homeroom: t.homeroom || '',
+                timetable: typeof t.timetable === 'string' ? JSON.parse(t.timetable) : (t.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} })
+              });
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Failed reading teachers SWR cache:', e);
+    }
+  }
+
+  // 3. Revalidate in background from local Express API (with abort controller timeout)
   let localApiCount = 0;
   try {
-    const res = await fetch('/api/teachers').catch(() => null);
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = setTimeout(() => controller?.abort(), 2000);
+    const res = await fetch('/api/teachers', { signal: controller?.signal }).catch(() => null);
+    clearTimeout(timeoutId);
     if (res && res.ok) {
       const data = await res.json().catch(() => null);
       if (Array.isArray(data)) {
@@ -140,10 +198,10 @@ export async function fetchTeachers(): Promise<Teacher[]> {
       }
     }
   } catch (err) {
-    console.warn('Local API read warning:', err);
+    console.warn('Local API read warning (offline / shadow zone):', err);
   }
 
-  // 3. Overlay from Firestore (authoritative cloud state)
+  // 4. Revalidate in background from Firestore (with 2.5s timeout)
   try {
     const firestorePromise = (async () => {
       const snapshot = await getDocs(collection(db, 'teachers'));
@@ -162,15 +220,24 @@ export async function fetchTeachers(): Promise<Teacher[]> {
     })();
 
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Firestore timeout')), 3000)
+      setTimeout(() => reject(new Error('Firestore timeout')), 2500)
     );
 
     await Promise.race([firestorePromise, timeoutPromise]);
   } catch (err) {
-    console.warn('Firestore fetch warning (using local/cached merged state):', err);
+    console.warn('Firestore fetch warning (serving cached SWR state):', err);
   }
 
   const mergedList = Array.from(teacherMap.values()).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+
+  // Update SWR cache in localStorage
+  if (typeof window !== 'undefined' && mergedList.length > 0) {
+    try {
+      localStorage.setItem(SWR_TEACHERS_CACHE_KEY, JSON.stringify(mergedList));
+    } catch (e) {
+      console.warn('Failed saving teachers to SWR cache:', e);
+    }
+  }
 
   // If merged list has more records than local disk API had, sync back to local disk
   if (mergedList.length > localApiCount) {
@@ -410,10 +477,37 @@ export async function fetchClassTimetables(): Promise<ClassTimetable[]> {
     }
   });
 
-  // 2. Overlay from local Express API
+  // 2. Overlay from SWR localStorage cache (immediate offline availability)
+  if (typeof window !== 'undefined') {
+    try {
+      const cached = localStorage.getItem(SWR_CLASSES_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((c: ClassTimetable) => {
+            if (c && c.classCode) {
+              classMap.set(c.classCode, {
+                classCode: c.classCode,
+                grade: c.grade || parseInt(c.classCode.charAt(0), 10) || 1,
+                classNum: c.classNum || parseInt(c.classCode.substring(1), 10) || 1,
+                timetable: typeof c.timetable === 'string' ? JSON.parse(c.timetable) : (c.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} })
+              });
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Failed reading classes SWR cache:', e);
+    }
+  }
+
+  // 3. Overlay from local Express API
   let localApiCount = 0;
   try {
-    const res = await fetch('/api/classes').catch(() => null);
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = setTimeout(() => controller?.abort(), 2000);
+    const res = await fetch('/api/classes', { signal: controller?.signal }).catch(() => null);
+    clearTimeout(timeoutId);
     if (res && res.ok) {
       const data = await res.json().catch(() => null);
       if (Array.isArray(data)) {
@@ -431,10 +525,10 @@ export async function fetchClassTimetables(): Promise<ClassTimetable[]> {
       }
     }
   } catch (err) {
-    console.warn('Local API read classes warning:', err);
+    console.warn('Local API read classes warning (offline / shadow zone):', err);
   }
 
-  // 3. Overlay from Firestore (authoritative cloud state)
+  // 4. Overlay from Firestore (with 2.5s timeout)
   try {
     const firestorePromise = (async () => {
       const snapshot = await getDocs(collection(db, 'classes'));
@@ -453,12 +547,12 @@ export async function fetchClassTimetables(): Promise<ClassTimetable[]> {
     })();
 
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Firestore timeout')), 3000)
+      setTimeout(() => reject(new Error('Firestore timeout')), 2500)
     );
 
     await Promise.race([firestorePromise, timeoutPromise]);
   } catch (err) {
-    console.warn('Firestore classes fetch warning:', err);
+    console.warn('Firestore classes fetch warning (serving cached SWR state):', err);
   }
 
   const defaultMap = new Map<string, string>();
@@ -480,6 +574,15 @@ export async function fetchClassTimetables(): Promise<ClassTimetable[]> {
     .sort((a, b) => 
       a.classCode.localeCompare(b.classCode, 'ko', { numeric: true })
     );
+
+  // Update SWR cache in localStorage
+  if (typeof window !== 'undefined' && mergedList.length > 0) {
+    try {
+      localStorage.setItem(SWR_CLASSES_CACHE_KEY, JSON.stringify(mergedList));
+    } catch (e) {
+      console.warn('Failed saving classes to SWR cache:', e);
+    }
+  }
 
   // Sync back to local API if merged list has new data
   if (mergedList.length > localApiCount) {

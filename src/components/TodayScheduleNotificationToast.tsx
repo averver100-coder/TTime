@@ -356,6 +356,26 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
     return { assigned: false };
   }, [todayLunchDuty, targetType, targetId]);
 
+  // Next Class 5-min Reminder for Active View
+  const upcoming5MinToast = useMemo(() => {
+    if (isWeekend || !todayDay) return null;
+    for (const item of periodItems) {
+      const p = periods.find(per => per.period === item.period);
+      if (!p) continue;
+      const startMins = parseTimeString(p.start);
+      const diff = startMins - currentMins;
+      if (diff > 0 && diff <= 5) {
+        return {
+          period: item.period,
+          label: item.label,
+          start: p.start,
+          diff,
+        };
+      }
+    }
+    return null;
+  }, [isWeekend, todayDay, periodItems, currentMins]);
+
   // Auto dismiss countdown
   useEffect(() => {
     if (!isOpen) {
@@ -634,6 +654,28 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* 5-minute Class Reminder Alert in Toast */}
+          {upcoming5MinToast && (
+            <div className="mb-2.5 p-3 rounded-xl border border-amber-300 bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-xs flex items-center justify-between gap-2.5 animate-pulse">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                  <Bell className="w-4 h-4 text-white animate-bounce" />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-extrabold text-xs sm:text-sm truncate">
+                    ⏰ {upcoming5MinToast.diff === 5 ? '5분 뒤' : `${upcoming5MinToast.diff}분 뒤`} {upcoming5MinToast.label} 수업입니다!
+                  </div>
+                  <div className="text-[10px] text-amber-100 truncate">
+                    {upcoming5MinToast.period}교시 ({upcoming5MinToast.start} 시작) · 교실 이동 준비
+                  </div>
+                </div>
+              </div>
+              <span className="text-[10px] font-bold bg-white text-amber-950 px-2 py-0.5 rounded shadow-2xs shrink-0 whitespace-nowrap">
+                곧 시작
+              </span>
             </div>
           )}
 

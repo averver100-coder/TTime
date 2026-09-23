@@ -1,3 +1,4 @@
+process.env.DISABLE_HMR = 'true';
 import 'dotenv/config';
 import express from 'express';
 import fs from 'fs';
@@ -5,7 +6,7 @@ import path from 'path';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
 import { GoogleGenAI } from '@google/genai';
-import { createServer as createViteServer } from 'vite';
+import { createServer as createViteServer, createLogger } from 'vite';
 import { parseExcelTimetable } from './server/excelParser.js';
 
 const app = express();
@@ -1414,12 +1415,52 @@ app.get('/manifest.json', (req, res, next) => {
 
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
+    const customLogger = createLogger('info', { allowClearScreen: false });
+    const originalError = customLogger.error.bind(customLogger);
+    const originalWarn = customLogger.warn.bind(customLogger);
+    const originalInfo = customLogger.info.bind(customLogger);
+
+    customLogger.error = (msg, options) => {
+      if (typeof msg === 'string' && (msg.includes('WebSocket') || msg.includes('vite-hmr') || msg.includes('failed to connect') || msg.includes('[vite]'))) return;
+      originalError(msg, options);
+    };
+    customLogger.warn = (msg, options) => {
+      if (typeof msg === 'string' && (msg.includes('WebSocket') || msg.includes('vite-hmr') || msg.includes('failed to connect') || msg.includes('[vite]'))) return;
+      originalWarn(msg, options);
+    };
+    customLogger.info = (msg, options) => {
+      if (typeof msg === 'string' && (msg.includes('WebSocket') || msg.includes('vite-hmr') || msg.includes('[vite]'))) return;
+      originalInfo(msg, options);
+    };
+
     const vite = await createViteServer({
+      customLogger,
       server: { 
         middlewareMode: true,
-        hmr: false
+        hmr: false,
+        watch: null
       },
       appType: 'spa',
+      plugins: [
+        {
+          name: 'silence-vite-hmr-client',
+          enforce: 'post',
+          transform(code, id) {
+            if (id.includes('client.mjs') || id.includes('@vite/client')) {
+              let transformed = code;
+              // Safe dummy transport in AI Studio preview where HMR is disabled
+              transformed = transformed.replace(
+                /createWebSocketModuleRunnerTransport\s*=\s*\(options\)\s*=>\s*\{[\s\S]*?send\(data\)\s*\{[\s\S]*?\}\s*;\s*\};/,
+                'createWebSocketModuleRunnerTransport = () => ({ async connect() {}, async disconnect() {}, send() {} });'
+              );
+              // Suppress console logging inside Vite client runtime
+              transformed = transformed.replace(/console\.(error|warn|debug|log|info)\(/g, '(() => {})(');
+              return transformed;
+            }
+            return null;
+          }
+        }
+      ]
     });
     app.use(vite.middlewares);
   } else {

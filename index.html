@@ -4,90 +4,159 @@
     <script>
       // Gracefully mock Vite HMR WebSocket and filter logs in AI Studio preview where HMR is disabled
       (function() {
-        if (typeof window !== 'undefined' && window.WebSocket) {
-          var NativeWebSocket = window.WebSocket;
+        if (typeof window !== 'undefined') {
+          // 1. Bulletproof WebSocket mock for Vite HMR in AI Studio
           function MockViteWebSocket(url, protocols) {
-            var isVite = (protocols === 'vite-hmr' || protocols === 'vite-ping' || 
-                          (typeof url === 'string' && (url.indexOf('token=') !== -1 || url.indexOf('vite') !== -1)));
-            if (!isVite) {
-              return new NativeWebSocket(url, protocols);
-            }
             var self = this;
             var listeners = {};
             this.readyState = 0;
+            this.CONNECTING = 0;
             this.OPEN = 1;
+            this.CLOSING = 2;
             this.CLOSED = 3;
-            this.url = url;
-            this.protocol = protocols || '';
-            this.addEventListener = function(type, fn) {
+            this.url = String(url || '');
+            this.protocol = Array.isArray(protocols) ? protocols[0] : (protocols || '');
+            this.binaryType = 'blob';
+            this.bufferedAmount = 0;
+            this.extensions = '';
+
+            this.addEventListener = function(type, fn, opts) {
+              if (typeof fn !== 'function') return;
               if (!listeners[type]) listeners[type] = [];
-              listeners[type].push(fn);
+              listeners[type].push({ fn: fn, once: !!(opts && opts.once) });
             };
+
             this.removeEventListener = function(type, fn) {
               if (!listeners[type]) return;
-              listeners[type] = listeners[type].filter(function(cb) { return cb !== fn; });
+              listeners[type] = listeners[type].filter(function(item) { return item.fn !== fn; });
             };
-            this.send = function() {};
-            this.close = function() { self.readyState = 3; };
+
+            this.dispatchEvent = function(event) {
+              var type = event.type;
+              if (listeners[type]) {
+                var list = listeners[type].slice();
+                listeners[type] = listeners[type].filter(function(item) { return !item.once; });
+                for (var i = 0; i < list.length; i++) {
+                  try { list[i].fn.call(self, event); } catch (e) {}
+                }
+              }
+              var handler = self['on' + type];
+              if (typeof handler === 'function') {
+                try { handler.call(self, event); } catch (e) {}
+              }
+              return true;
+            };
+
+            this.send = function(data) {
+              try {
+                var str = String(data);
+                if (str.indexOf('ping') !== -1) {
+                  setTimeout(function() {
+                    if (self.readyState === 1) {
+                      var pongEvt = new MessageEvent('message', { data: JSON.stringify({ type: 'pong' }) });
+                      self.dispatchEvent(pongEvt);
+                    }
+                  }, 50);
+                }
+              } catch (e) {}
+            };
+
+            this.close = function() {
+              self.readyState = 3;
+              var closeEvt = new CloseEvent('close', { wasClean: true, code: 1000, reason: 'Normal Closure' });
+              self.dispatchEvent(closeEvt);
+            };
 
             setTimeout(function() {
               self.readyState = 1;
-              var event = new Event('open');
-              if (typeof self.onopen === 'function') self.onopen(event);
-              if (listeners['open']) {
-                listeners['open'].forEach(function(cb) { cb(event); });
-              }
-            }, 0);
+              var openEvt = new Event('open');
+              self.dispatchEvent(openEvt);
+              // Send Vite connected message
+              var msgEvt = new MessageEvent('message', { data: JSON.stringify({ type: 'connected' }) });
+              self.dispatchEvent(msgEvt);
+            }, 10);
           }
-          MockViteWebSocket.prototype = NativeWebSocket.prototype;
+
           MockViteWebSocket.CONNECTING = 0;
           MockViteWebSocket.OPEN = 1;
           MockViteWebSocket.CLOSING = 2;
           MockViteWebSocket.CLOSED = 3;
-          window.WebSocket = MockViteWebSocket;
-        }
+          MockViteWebSocket.prototype = {
+            CONNECTING: 0,
+            OPEN: 1,
+            CLOSING: 2,
+            CLOSED: 3
+          };
 
-        var isViteMsg = function(args) {
-          for (var i = 0; i < args.length; i++) {
-            var a = args[i];
-            if (typeof a === 'string' && (a.indexOf('[vite]') !== -1 || a.indexOf('failed to connect to websocket') !== -1 || a.indexOf('WebSocket') !== -1)) return true;
-            if (a && typeof a.message === 'string' && (a.message.indexOf('[vite]') !== -1 || a.message.indexOf('failed to connect to websocket') !== -1 || a.message.indexOf('WebSocket') !== -1)) return true;
+          window.WebSocket = MockViteWebSocket;
+
+          // 2. Comprehensive console suppression for Vite HMR artifacts
+          var isViteMsg = function(args) {
+            if (!args || !args.length) return false;
+            for (var i = 0; i < args.length; i++) {
+              var a = args[i];
+              if (!a) continue;
+              var s = '';
+              if (typeof a === 'string') s = a;
+              else if (a instanceof Error) s = (a.message || '') + ' ' + (a.stack || '');
+              else {
+                try { s = JSON.stringify(a); } catch (e) { s = String(a); }
+              }
+              if (
+                s.indexOf('[vite]') !== -1 ||
+                s.indexOf('vite-hmr') !== -1 ||
+                s.indexOf('vite-ping') !== -1 ||
+                s.indexOf('failed to connect to websocket') !== -1 ||
+                s.indexOf('WebSocket closed without opened') !== -1 ||
+                s.indexOf('@vite/client') !== -1
+              ) {
+                return true;
+              }
+            }
+            return false;
+          };
+
+          var methods = ['error', 'warn', 'info', 'log', 'debug'];
+          for (var m = 0; m < methods.length; m++) {
+            (function(method) {
+              var orig = console[method];
+              if (typeof orig === 'function') {
+                console[method] = function() {
+                  if (isViteMsg(arguments)) return;
+                  return orig.apply(console, arguments);
+                };
+              }
+            })(methods[m]);
           }
-          return false;
-        };
-        ['error', 'warn', 'info', 'log', 'debug'].forEach(function(m) {
-          var orig = console[m];
-          if (typeof orig === 'function') {
-            console[m] = function() {
-              if (isViteMsg(arguments)) return;
-              return orig.apply(console, arguments);
-            };
-          }
-        });
-        window.onerror = function(msg, url) {
-          var m = String(msg || '');
-          var u = String(url || '');
-          if (m.indexOf('[vite]') !== -1 || m.indexOf('websocket') !== -1 || u.indexOf('@vite/client') !== -1) {
-            return true;
-          }
-        };
-        window.addEventListener('error', function(e) {
-          if (e && (
-            (e.message && (e.message.indexOf('[vite]') !== -1 || e.message.indexOf('failed to connect to websocket') !== -1)) ||
-            (e.filename && e.filename.indexOf('@vite/client') !== -1)
-          )) {
-            e.stopImmediatePropagation();
-            e.preventDefault();
-          }
-        }, true);
-        window.addEventListener('unhandledrejection', function(e) {
-          var reason = e && (e.reason || e.detail);
-          var reasonStr = String((reason && (reason.message || reason.stack || reason)) || '');
-          if (reasonStr.indexOf('[vite]') !== -1 || reasonStr.indexOf('WebSocket') !== -1 || reasonStr.indexOf('failed to connect') !== -1) {
-            e.stopImmediatePropagation();
-            e.preventDefault();
-          }
-        }, true);
+
+          // 3. Error event suppressors
+          window.onerror = function(msg, url) {
+            var m = String(msg || '');
+            var u = String(url || '');
+            if (m.indexOf('[vite]') !== -1 || m.indexOf('websocket') !== -1 || u.indexOf('@vite/client') !== -1) {
+              return true;
+            }
+          };
+
+          window.addEventListener('error', function(e) {
+            if (e && (
+              (e.message && (e.message.indexOf('[vite]') !== -1 || e.message.indexOf('failed to connect to websocket') !== -1)) ||
+              (e.filename && e.filename.indexOf('@vite/client') !== -1)
+            )) {
+              e.stopImmediatePropagation();
+              e.preventDefault();
+            }
+          }, true);
+
+          window.addEventListener('unhandledrejection', function(e) {
+            var reason = e && (e.reason || e.detail);
+            var reasonStr = String((reason && (reason.message || reason.stack || reason)) || '');
+            if (reasonStr.indexOf('[vite]') !== -1 || reasonStr.indexOf('WebSocket') !== -1 || reasonStr.indexOf('failed to connect') !== -1) {
+              e.stopImmediatePropagation();
+              e.preventDefault();
+            }
+          }, true);
+        }
       })();
     </script>
     <meta charset="UTF-8" />

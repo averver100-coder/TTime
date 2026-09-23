@@ -16,43 +16,17 @@ export async function fetchLunchDutyMonth(targetYearMonth?: string): Promise<Lun
   const kst = getKSTDate();
   const yearMonth = targetYearMonth || kst.yearMonth;
   let record: LunchDutyMonthRecord | null = null;
+  const cacheKey = `ssamtime_swr_lunch_${yearMonth}`;
 
   // 1. If matching default bundled data, start with it
   if (defaultLunchData && defaultLunchData.yearMonth === yearMonth) {
     record = JSON.parse(JSON.stringify(defaultLunchData));
   }
 
-  // 2. Check local Express API
-  try {
-    const res = await fetch(`/api/lunch-duties?month=${encodeURIComponent(yearMonth)}`).catch(() => null);
-    if (res && res.ok) {
-      const data = await res.json().catch(() => null);
-      if (data && Array.isArray(data.duties) && data.duties.length > 0) {
-        record = data;
-      }
-    }
-  } catch (err) {
-    console.warn('Failed to fetch lunch duties from local API:', err);
-  }
-
-  // 3. Check Firestore for authoritative cloud record
-  try {
-    const docRef = doc(db, 'lunchDuties', yearMonth);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      const cloudData = snap.data() as LunchDutyMonthRecord;
-      if (cloudData && Array.isArray(cloudData.duties)) {
-        record = cloudData;
-      }
-    }
-  } catch (err) {
-    console.warn('Failed to fetch lunch duties from Firestore:', err);
-  }
-
-  // 4. LocalStorage cache fallback
-  if (!record) {
+  // 2. Read from localStorage SWR cache for instant offline rendering
+  if (typeof window !== 'undefined') {
     try {
-      const cached = localStorage.getItem(`lunchDuty_${yearMonth}`);
+      const cached = localStorage.getItem(cacheKey) || localStorage.getItem(`lunchDuty_${yearMonth}`);
       if (cached) {
         const parsed = JSON.parse(cached);
         if (parsed && Array.isArray(parsed.duties)) {
@@ -62,13 +36,51 @@ export async function fetchLunchDutyMonth(targetYearMonth?: string): Promise<Lun
     } catch {}
   }
 
+  // 3. Check local Express API with abort timeout
+  try {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = setTimeout(() => controller?.abort(), 2000);
+    const res = await fetch(`/api/lunch-duties?month=${encodeURIComponent(yearMonth)}`, { signal: controller?.signal }).catch(() => null);
+    clearTimeout(timeoutId);
+    if (res && res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data && Array.isArray(data.duties) && data.duties.length > 0) {
+        record = data;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to fetch lunch duties from local API (offline / shadow zone):', err);
+  }
+
+  // 4. Check Firestore for authoritative cloud record with timeout
+  try {
+    const firestorePromise = (async () => {
+      const docRef = doc(db, 'lunchDuties', yearMonth);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const cloudData = snap.data() as LunchDutyMonthRecord;
+        if (cloudData && Array.isArray(cloudData.duties)) {
+          record = cloudData;
+        }
+      }
+    })();
+
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Firestore timeout')), 2500)
+    );
+
+    await Promise.race([firestorePromise, timeoutPromise]);
+  } catch (err) {
+    console.warn('Failed to fetch lunch duties from Firestore (serving cached SWR state):', err);
+  }
+
   // Fallback if nothing found
   if (!record) {
     if (defaultLunchData && defaultLunchData.yearMonth === yearMonth) {
       return defaultLunchData as LunchDutyMonthRecord;
     }
     const [y, m] = yearMonth.split('-').map(Number);
-    return {
+    record = {
       yearMonth,
       year: y || kst.year,
       month: m || kst.month,
@@ -76,6 +88,13 @@ export async function fetchLunchDutyMonth(targetYearMonth?: string): Promise<Lun
       updatedAt: new Date().toISOString(),
       duties: [],
     };
+  }
+
+  // Save to SWR localStorage cache
+  if (typeof window !== 'undefined' && record) {
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify(record));
+    } catch {}
   }
 
   return record;
