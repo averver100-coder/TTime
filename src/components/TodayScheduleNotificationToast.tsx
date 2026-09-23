@@ -10,7 +10,9 @@ import {
   Check, 
   GraduationCap, 
   User, 
-  ExternalLink 
+  ExternalLink,
+  GripHorizontal,
+  RotateCcw
 } from 'lucide-react';
 import { 
   Teacher, 
@@ -51,6 +53,82 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
   const [isHovered, setIsHovered] = useState(false);
   const [progress, setProgress] = useState(100);
   const DURATION_MS = 10000; // 10 seconds auto-dismiss
+
+  // Draggable window state
+  const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ mouseX: number; mouseY: number; initialX: number; initialY: number } | null>(null);
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Only primary mouse button (button 0)
+    if (e.button !== 0) return;
+    // Don't start drag if clicking interactive buttons
+    if ((e.target as HTMLElement).closest('button')) return;
+
+    e.preventDefault();
+    setIsDragging(true);
+    dragStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      initialX: offset.x,
+      initialY: offset.y,
+    };
+  };
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    setIsDragging(true);
+    dragStartRef.current = {
+      mouseX: touch.clientX,
+      mouseY: touch.clientY,
+      initialX: offset.x,
+      initialY: offset.y,
+    };
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragStartRef.current) return;
+      const deltaX = e.clientX - dragStartRef.current.mouseX;
+      const deltaY = e.clientY - dragStartRef.current.mouseY;
+      setOffset({
+        x: dragStartRef.current.initialX + deltaX,
+        y: dragStartRef.current.initialY + deltaY,
+      });
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!dragStartRef.current || e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      const deltaX = touch.clientX - dragStartRef.current.mouseX;
+      const deltaY = touch.clientY - dragStartRef.current.mouseY;
+      setOffset({
+        x: dragStartRef.current.initialX + deltaX,
+        y: dragStartRef.current.initialY + deltaY,
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      dragStartRef.current = null;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('touchmove', handleTouchMove);
+    window.addEventListener('touchend', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleMouseUp);
+    };
+  }, [isDragging]);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -158,7 +236,7 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
       return;
     }
 
-    if (isHovered) return;
+    if (isHovered || isDragging) return;
 
     const intervalTime = 50;
     const step = (intervalTime / DURATION_MS) * 100;
@@ -175,7 +253,7 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
     }, intervalTime);
 
     return () => clearInterval(timer);
-  }, [isOpen, isHovered, onClose]);
+  }, [isOpen, isHovered, isDragging, onClose]);
 
   // Request push notification permission and send instant notification
   const handleRequestPushNotification = async () => {
@@ -214,34 +292,70 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
 
   return (
     <div 
-      className="fixed top-20 right-4 sm:right-6 z-50 max-w-md w-[calc(100%-2rem)] transition-all transform animate-in fade-in slide-in-from-top-4 duration-300"
+      className={`fixed top-20 right-4 sm:right-6 z-50 max-w-md w-[calc(100%-2rem)] ${
+        isDragging ? 'select-none pointer-events-auto' : ''
+      }`}
+      style={{
+        transform: `translate3d(${offset.x}px, ${offset.y}px, 0)`,
+      }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <div className="bg-white/98 backdrop-blur-md rounded-2xl shadow-2xl border-2 border-blue-500/80 overflow-hidden ring-4 ring-blue-500/10">
-        {/* Header Ribbon */}
-        <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 px-4 py-2.5 text-white flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg bg-white/20 flex items-center justify-center">
+      <div className="bg-white/98 backdrop-blur-md rounded-2xl shadow-2xl border-2 border-blue-500/80 overflow-hidden ring-4 ring-blue-500/10 animate-in fade-in slide-in-from-top-4 duration-300">
+        {/* Header Ribbon - Draggable by mouse & touch */}
+        <div 
+          onMouseDown={handleMouseDown}
+          onTouchStart={handleTouchStart}
+          className={`bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 px-4 py-2.5 text-white flex items-center justify-between select-none ${
+            isDragging ? 'cursor-grabbing' : 'cursor-grab'
+          }`}
+          title="상단바를 마우스로 드래그하여 알림창 위치를 이동할 수 있습니다"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="p-0.5 rounded text-white/70 hover:text-white transition shrink-0" title="드래그하여 이동">
+              <GripHorizontal className="w-4 h-4" />
+            </div>
+            <div className="w-6 h-6 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
               <BellRing className="w-3.5 h-3.5 animate-bounce text-yellow-300" />
             </div>
-            <span className="text-xs font-black tracking-wide flex items-center gap-1.5">
+            <span className="text-xs font-black tracking-wide flex items-center gap-1.5 truncate">
               <span>오늘의 수업 시간표 알림</span>
               {primaryBookmark && (
-                <span className="bg-amber-400 text-amber-950 text-[10px] px-1.5 py-0.2 rounded-full font-extrabold flex items-center gap-0.5">
+                <span className="bg-amber-400 text-amber-950 text-[10px] px-1.5 py-0.2 rounded-full font-extrabold flex items-center gap-0.5 shrink-0">
                   <Star className="w-2.5 h-2.5 fill-amber-950" /> 즐겨찾기
                 </span>
               )}
             </span>
           </div>
 
-          <button
-            onClick={onClose}
-            className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition cursor-pointer"
-            title="닫기"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Position reset button if user moved the window */}
+            {(offset.x !== 0 || offset.y !== 0) && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOffset({ x: 0, y: 0 });
+                }}
+                className="text-white/80 hover:text-white text-[11px] font-bold px-2 py-0.5 rounded-md bg-white/15 hover:bg-white/25 transition cursor-pointer flex items-center gap-1"
+                title="원래 위치로 초기화"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span className="hidden sm:inline">원위치</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition cursor-pointer"
+              title="닫기"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Content Body */}
