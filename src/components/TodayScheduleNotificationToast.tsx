@@ -12,7 +12,10 @@ import {
   User, 
   ExternalLink,
   GripHorizontal,
-  RotateCcw
+  RotateCcw,
+  ShieldCheck,
+  Utensils,
+  Sparkles
 } from 'lucide-react';
 import { 
   Teacher, 
@@ -27,6 +30,10 @@ import {
   getCurrentTimeMinutes 
 } from '../lib/timetableUtils';
 import { BookmarkItem } from '../hooks/useBookmarks';
+import { fetchGateDutyMonth, getKSTDate } from '../lib/gateDutyStore';
+import { fetchLunchDutyMonth } from '../lib/lunchDutyStore';
+import { GateDutyMonthRecord } from '../types/gateDuty';
+import { LunchDutyMonthRecord } from '../types/lunchDuty';
 
 interface TodayScheduleNotificationToastProps {
   teachers: Teacher[];
@@ -61,6 +68,34 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
 
   // Selected bookmark tab index (for users with multiple bookmarks like 1 teacher + 2 classes)
   const [selectedBookmarkIndex, setSelectedBookmarkIndex] = useState(0);
+
+  // Gate & Lunch Duty states
+  const [gateDutyRecord, setGateDutyRecord] = useState<GateDutyMonthRecord | null>(null);
+  const [lunchDutyRecord, setLunchDutyRecord] = useState<LunchDutyMonthRecord | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let isMounted = true;
+    const loadDuties = async () => {
+      try {
+        const kstDate = getKSTDate();
+        const [gRecord, lRecord] = await Promise.all([
+          fetchGateDutyMonth(kstDate.yearMonth),
+          fetchLunchDutyMonth(kstDate.yearMonth),
+        ]);
+        if (isMounted) {
+          setGateDutyRecord(gRecord);
+          setLunchDutyRecord(lRecord);
+        }
+      } catch (err) {
+        console.error('Failed to load duty records for notification:', err);
+      }
+    };
+    loadDuties();
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen]);
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     // Only primary mouse button (button 0)
@@ -258,6 +293,69 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
     }
   }
 
+  // Today's KST date
+  const kst = useMemo(() => getKSTDate(), [currentTime]);
+
+  const todayGateDuty = useMemo(() => {
+    if (!gateDutyRecord?.duties) return null;
+    return gateDutyRecord.duties.find(d => 
+      d.date === kst.dateStr || (d.month === kst.month && d.day === kst.day)
+    ) || null;
+  }, [gateDutyRecord, kst.dateStr, kst.month, kst.day]);
+
+  const todayLunchDuty = useMemo(() => {
+    if (!lunchDutyRecord?.duties) return null;
+    return lunchDutyRecord.duties.find(d => 
+      d.date === kst.dateStr || (d.month === kst.month && d.day === kst.day)
+    ) || null;
+  }, [lunchDutyRecord, kst.dateStr, kst.month, kst.day]);
+
+  const teacherGateDutyInfo = useMemo(() => {
+    if (!todayGateDuty || targetType !== 'teacher' || !targetId) return null;
+    const cleanTarget = targetId.trim();
+    const isAssigned = todayGateDuty.teachers?.some(t => {
+      const cleanT = t.replace(/\(.*?\)/g, '').trim();
+      return cleanT === cleanTarget || t.includes(cleanTarget);
+    });
+    if (isAssigned) {
+      return {
+        assigned: true,
+        time: '07:50 ~ 08:30',
+        teachers: todayGateDuty.teachers,
+        note: todayGateDuty.note,
+      };
+    }
+    return { assigned: false };
+  }, [todayGateDuty, targetType, targetId]);
+
+  const teacherLunchDutyInfo = useMemo(() => {
+    if (!todayLunchDuty || targetType !== 'teacher' || !targetId) return null;
+    const cleanTarget = targetId.trim();
+    
+    let roleTitle = '';
+    if (todayLunchDuty.generalTeacher && todayLunchDuty.generalTeacher.replace(/\(.*?\)/g, '').trim() === cleanTarget) {
+      roleTitle = '총괄지도';
+    } else if (todayLunchDuty.grade1Teacher && todayLunchDuty.grade1Teacher.replace(/\(.*?\)/g, '').trim() === cleanTarget) {
+      roleTitle = '1학년 급식지도';
+    } else if (todayLunchDuty.grade2Teacher && todayLunchDuty.grade2Teacher.replace(/\(.*?\)/g, '').trim() === cleanTarget) {
+      roleTitle = '2학년 급식지도';
+    } else if (todayLunchDuty.grade3Teacher && todayLunchDuty.grade3Teacher.replace(/\(.*?\)/g, '').trim() === cleanTarget) {
+      roleTitle = '3학년 급식지도';
+    } else if (todayLunchDuty.teachers?.some(t => t.replace(/\(.*?\)/g, '').trim() === cleanTarget || t.includes(cleanTarget))) {
+      roleTitle = '급식지도';
+    }
+
+    if (roleTitle) {
+      return {
+        assigned: true,
+        role: roleTitle,
+        time: '12:20 ~ 13:20',
+        note: todayLunchDuty.note,
+      };
+    }
+    return { assigned: false };
+  }, [todayLunchDuty, targetType, targetId]);
+
   // Auto dismiss countdown
   useEffect(() => {
     if (!isOpen) {
@@ -293,12 +391,21 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
       if (perm === 'granted') {
         localStorage.setItem('ssamtime_push_notif_enabled', 'true');
         // Trigger push notification immediately
-        const notifBody = periodItems.length > 0 
-          ? periodItems.map(item => `${item.period}교시: ${item.label}`).join(' · ')
-          : scheduleSubtitle;
+        const notifLines: string[] = [];
+        if (teacherGateDutyInfo?.assigned) {
+          notifLines.push(`🛡️ 오늘 교문 지도 배정 (07:50~08:30)`);
+        }
+        if (teacherLunchDutyInfo?.assigned) {
+          notifLines.push(`🍱 오늘 급식 감독 배정 (${teacherLunchDutyInfo.role}, 12:20~13:20)`);
+        }
+        if (periodItems.length > 0) {
+          notifLines.push(periodItems.map(item => `${item.period}교시: ${item.label}`).join(' · '));
+        } else {
+          notifLines.push(scheduleSubtitle);
+        }
 
         new Notification(`🔔 ${scheduleTitle}`, {
-          body: notifBody,
+          body: notifLines.join('\n'),
           icon: '/favicon.ico',
         });
       }
@@ -448,6 +555,87 @@ export const TodayScheduleNotificationToast: React.FC<TodayScheduleNotificationT
               {scheduleSubtitle}
             </p>
           </div>
+
+          {/* Teacher Today's Special Duty Card (Gate & Lunch Duty) */}
+          {targetType === 'teacher' && (
+            <div className="rounded-xl border p-2.5 space-y-2 bg-gradient-to-br from-slate-50 via-white to-blue-50/40 border-blue-100/90 shadow-2xs">
+              <div className="flex items-center justify-between text-[11px] font-bold">
+                <span className="text-gray-800 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                  <span>오늘의 특별 지도 담당 (교문 / 급식)</span>
+                </span>
+                <span className="text-[10px] text-gray-500 font-medium">
+                  {kst.month}월 {kst.day}일 ({kst.dayOfWeekShort})
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs">
+                {/* 교문지도 */}
+                <div className={`p-2 rounded-lg border flex items-start gap-2 transition ${
+                  teacherGateDutyInfo?.assigned 
+                    ? 'bg-blue-600 text-white border-blue-700 shadow-xs ring-2 ring-blue-300/50' 
+                    : 'bg-white border-gray-200/80 text-gray-700'
+                }`}>
+                  <div className={`p-1 rounded-md shrink-0 mt-0.5 ${
+                    teacherGateDutyInfo?.assigned ? 'bg-white/20 text-white' : 'bg-blue-50 text-blue-600'
+                  }`}>
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-1 font-bold">
+                      <span>교문 지도</span>
+                      {teacherGateDutyInfo?.assigned ? (
+                        <span className="bg-yellow-300 text-yellow-950 text-[9px] px-1.5 py-0.2 rounded font-black animate-pulse">
+                          오늘 배정!
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-gray-400 font-normal">
+                          (해당 없음)
+                        </span>
+                      )}
+                    </div>
+                    <div className={`text-[11px] mt-0.5 ${teacherGateDutyInfo?.assigned ? 'text-blue-100 font-medium' : 'text-gray-500'}`}>
+                      {teacherGateDutyInfo?.assigned 
+                        ? `07:50 ~ 08:30 등교맞이` 
+                        : `오늘 교문지도 없음`}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 급식감독 */}
+                <div className={`p-2 rounded-lg border flex items-start gap-2 transition ${
+                  teacherLunchDutyInfo?.assigned 
+                    ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-300/50' 
+                    : 'bg-white border-gray-200/80 text-gray-700'
+                }`}>
+                  <div className={`p-1 rounded-md shrink-0 mt-0.5 ${
+                    teacherLunchDutyInfo?.assigned ? 'bg-white/20 text-white' : 'bg-amber-50 text-amber-600'
+                  }`}>
+                    <Utensils className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-1 font-bold">
+                      <span>급식 감독</span>
+                      {teacherLunchDutyInfo?.assigned ? (
+                        <span className="bg-white text-amber-950 text-[9px] px-1.5 py-0.2 rounded font-black animate-pulse">
+                          오늘 배정!
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-gray-400 font-normal">
+                          (해당 없음)
+                        </span>
+                      )}
+                    </div>
+                    <div className={`text-[11px] mt-0.5 ${teacherLunchDutyInfo?.assigned ? 'text-amber-100 font-medium' : 'text-gray-500'}`}>
+                      {teacherLunchDutyInfo?.assigned 
+                        ? `${teacherLunchDutyInfo.role} (12:20~13:20)` 
+                        : `오늘 급식감독 없음`}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Period Chips (if available) */}
           {periodItems.length > 0 && (
