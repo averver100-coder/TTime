@@ -94,6 +94,34 @@ export const formatClassroomShort = (classroomCode: string) => {
 // Korean initial consonants (19 초성)
 export const KOREAN_CONSONANTS = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
 
+/**
+ * Composite consonant (겹받침) decomposition mapping.
+ * When typing initials on a Korean keyboard, consecutive consonants (e.g. ㄱ then ㅅ)
+ * are often combined by the IME into composite characters like 'ㄳ'.
+ */
+export const COMPOSITE_CONSONANTS_MAP: Record<string, string> = {
+  'ㄳ': 'ㄱㅅ',
+  'ㄵ': 'ㄴㅈ',
+  'ㄶ': 'ㄴㅎ',
+  'ㄺ': 'ㄹㄱ',
+  'ㄻ': 'ㄹㅁ',
+  'ㄼ': 'ㄹㅂ',
+  'ㄽ': 'ㄹㅅ',
+  'ㄾ': 'ㄹㅌ',
+  'ㄿ': 'ㄹㅍ',
+  'ㅀ': 'ㄹㅎ',
+  'ㅄ': 'ㅂㅅ',
+};
+
+/**
+ * Decomposes composite consonants into individual initial consonants.
+ * e.g. "ㄳ" -> "ㄱㅅ", "ㄳㅇ" -> "ㄱㅅㅇ", "김ㄳ" -> "김ㄱㅅ"
+ */
+export const decomposeConsonants = (str: string): string => {
+  if (!str) return '';
+  return str.replace(/[ㄳㄵㄶㄺㄻㄼㄽㄾㄿㅀㅄ]/g, (match) => COMPOSITE_CONSONANTS_MAP[match] || match);
+};
+
 export const getInitialConsonant = (char: string): string => {
   if (!char) return '#';
   const code = char.charCodeAt(0) - 44032;
@@ -120,14 +148,26 @@ export const getChosung = (str: string): string => {
  * Searches a target string with full Korean Hangul and Chosung support.
  * Supports:
  * - Direct substring (e.g. "김가", "김가영")
- * - Pure Chosung substring (e.g. "ㄱㄱㅇ", "ㄱㄱ")
- * - Mixed partial Chosung (e.g. "김ㄱ", "ㄱ가")
+ * - Pure Chosung substring (e.g. "ㄱㄱㅇ", "ㄱㄱ", "ㄳ" -> "ㄱㅅ")
+ * - Mixed partial Chosung (e.g. "김ㄱ", "ㄱ가", "김ㄳ" -> "김ㄱㅅ")
  */
 export const matchKorean = (target: string, query: string): boolean => {
   const t = (target || '').toLowerCase().replace(/\s+/g, '');
-  const q = (query || '').toLowerCase().replace(/\s+/g, '');
-  if (!q) return false;
+  const rawQ = (query || '').toLowerCase().replace(/\s+/g, '');
+  if (!rawQ) return false;
+  if (t.includes(rawQ)) return true;
+
+  // Decompose composite consonants (e.g. "ㄳ" -> "ㄱㅅ")
+  const q = decomposeConsonants(rawQ);
   if (t.includes(q)) return true;
+
+  // Check pure chosung inclusion
+  const targetChosung = getChosung(t);
+  if (targetChosung.includes(q)) return true;
+
+  // Also support tense consonant expansion (e.g. "ㄲ" matching "ㄱㄱ")
+  const tenseExpandedQ = q.replace(/ㄲ/g, 'ㄱㄱ').replace(/ㄸ/g, 'ㄷㄷ').replace(/ㅃ/g, 'ㅂㅂ').replace(/ㅆ/g, 'ㅅㅅ').replace(/ㅉ/g, 'ㅈㅈ');
+  if (targetChosung.includes(tenseExpandedQ)) return true;
 
   if (t.length < q.length) return false;
 

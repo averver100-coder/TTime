@@ -50,6 +50,7 @@ import {
   KOREAN_CONSONANTS,
   getInitialConsonant,
   getChosung,
+  decomposeConsonants,
   matchKorean
 } from '../lib/timetableUtils';
 import { Footer } from '../components/Footer';
@@ -202,14 +203,19 @@ export const Home: React.FC = () => {
     const trimmed = query.trim();
     if (!trimmed) return [];
 
-    const isChosungOnly = /^[ㄱ-ㅎ\s]+$/.test(trimmed);
-    const trimmedClean = trimmed.replace(/\s+/g, '');
+    const decomposedTrimmed = decomposeConsonants(trimmed);
+    const isChosungOnly = /^[ㄱ-ㅎ\s]+$/.test(decomposedTrimmed);
+    const trimmedClean = decomposedTrimmed.replace(/\s+/g, '');
+    const tenseExpandedClean = trimmedClean.replace(/ㄲ/g, 'ㄱㄱ').replace(/ㄸ/g, 'ㄷㄷ').replace(/ㅃ/g, 'ㅂㅂ').replace(/ㅆ/g, 'ㅅㅅ').replace(/ㅉ/g, 'ㅈㅈ');
 
     return teachers
       .filter(t => {
         if (isChosungOnly) {
           const nameChosung = getChosung(t.name);
-          return nameChosung.includes(trimmedClean);
+          return (
+            nameChosung.includes(trimmedClean) ||
+            nameChosung.includes(tenseExpandedClean)
+          );
         }
 
         const nameMatches = matchKorean(t.name, trimmed);
@@ -233,13 +239,21 @@ export const Home: React.FC = () => {
         // 2. Exact chosung match
         const aChosung = getChosung(a.name);
         const bChosung = getChosung(b.name);
-        const aChosungExact = aChosung === trimmedClean ? 0 : 1;
-        const bChosungExact = bChosung === trimmedClean ? 0 : 1;
+        const aChosungExact = (aChosung === trimmedClean || aChosung === tenseExpandedClean) ? 0 : 1;
+        const bChosungExact = (bChosung === trimmedClean || bChosung === tenseExpandedClean) ? 0 : 1;
         if (aChosungExact !== bChosungExact) return aChosungExact - bChosungExact;
 
         // 3. Name or chosung starts with query
-        const aStarts = a.name.toLowerCase().startsWith(trimmed.toLowerCase()) || aChosung.startsWith(trimmedClean) ? 0 : 1;
-        const bStarts = b.name.toLowerCase().startsWith(trimmed.toLowerCase()) || bChosung.startsWith(trimmedClean) ? 0 : 1;
+        const aStarts = (
+          a.name.toLowerCase().startsWith(trimmed.toLowerCase()) || 
+          aChosung.startsWith(trimmedClean) || 
+          aChosung.startsWith(tenseExpandedClean)
+        ) ? 0 : 1;
+        const bStarts = (
+          b.name.toLowerCase().startsWith(trimmed.toLowerCase()) || 
+          bChosung.startsWith(trimmedClean) || 
+          bChosung.startsWith(tenseExpandedClean)
+        ) ? 0 : 1;
         if (aStarts !== bStarts) return aStarts - bStarts;
 
         return a.name.localeCompare(b.name, 'ko');
@@ -277,11 +291,17 @@ export const Home: React.FC = () => {
     }
 
     if (filteredTeachers.length > 0) {
-      const trimmedClean = trimmed.replace(/\s+/g, '');
-      const exact = filteredTeachers.find(t => 
-        t.name.toLowerCase() === trimmed.toLowerCase() ||
-        getChosung(t.name) === trimmedClean
-      ) || filteredTeachers[0];
+      const decomposed = decomposeConsonants(trimmed);
+      const trimmedClean = decomposed.replace(/\s+/g, '');
+      const tenseExpandedClean = trimmedClean.replace(/ㄲ/g, 'ㄱㄱ').replace(/ㄸ/g, 'ㄷㄷ').replace(/ㅃ/g, 'ㅂㅂ').replace(/ㅆ/g, 'ㅅㅅ').replace(/ㅉ/g, 'ㅈㅈ');
+      const exact = filteredTeachers.find(t => {
+        const tChosung = getChosung(t.name);
+        return (
+          t.name.toLowerCase() === trimmed.toLowerCase() ||
+          tChosung === trimmedClean ||
+          tChosung === tenseExpandedClean
+        );
+      }) || filteredTeachers[0];
       handleSelectTeacher(exact);
     } else if (filteredClasses.length > 0) {
       handleSelectClass(filteredClasses[0]);
