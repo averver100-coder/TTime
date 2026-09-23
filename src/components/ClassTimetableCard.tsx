@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   GraduationCap, 
   Clock, 
@@ -9,9 +9,13 @@ import {
   CalendarCheck,
   CheckCircle2,
   X,
-  Star
+  Star,
+  Download,
+  Share2,
+  Loader2
 } from 'lucide-react';
 import { useBookmarks } from '../hooks/useBookmarks';
+import { exportElementAsPng } from '../lib/exportImage';
 import { 
   ClassTimetable, 
   DayOfWeek, 
@@ -43,6 +47,8 @@ export const ClassTimetableCard: React.FC<ClassTimetableCardProps> = ({
   onSelectTeacher
 }) => {
   const [selectedDayTab, setSelectedDayTab] = useState<'ALL' | DayOfWeek>('ALL');
+  const [isExporting, setIsExporting] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
   const { isBookmarked, toggleBookmark } = useBookmarks();
 
   const isClassBookmarked = isBookmarked('class', classItem.classCode);
@@ -54,6 +60,22 @@ export const ClassTimetableCard: React.FC<ClassTimetableCardProps> = ({
       title: formatClassTitle(classItem.classCode),
       subtitle: `${classItem.grade}-${classItem.classNum} (${classItem.classCode})`
     });
+  };
+
+  const handleExportImage = async () => {
+    if (!cardRef.current || isExporting) return;
+    try {
+      setIsExporting(true);
+      await exportElementAsPng(cardRef.current, {
+        filename: `${classItem.grade}학년_${classItem.classNum}반_시간표`,
+        backgroundColor: '#ffffff'
+      });
+    } catch (err) {
+      console.error('Failed to export image:', err);
+      alert('시간표 이미지 저장 중 오류가 발생했습니다.');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const todayDay = getDayFromIndex(currentTime.getDay());
@@ -132,19 +154,33 @@ export const ClassTimetableCard: React.FC<ClassTimetableCardProps> = ({
   const daysToDisplay = selectedDayTab === 'ALL' ? ALL_WEEKDAYS : [selectedDayTab];
 
   return (
-    <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden mb-6 transition-all">
+    <div ref={cardRef} className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden mb-6 transition-all">
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 p-5 sm:p-6 text-white relative">
         {onClose && (
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 flex items-center justify-center text-white transition-all"
+            className="absolute top-4 right-14 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 flex items-center justify-center text-white transition-all"
             title="닫기"
             aria-label="닫기"
           >
             <X className="w-5 h-5" />
           </button>
         )}
+
+        <button
+          type="button"
+          onClick={handleExportImage}
+          disabled={isExporting}
+          className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/15 hover:bg-white/30 active:scale-95 flex items-center justify-center text-white transition-all shadow-xs cursor-pointer disabled:opacity-50"
+          title="시간표 이미지로 저장"
+        >
+          {isExporting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Download className="w-4 h-4" />
+          )}
+        </button>
 
         <div className="flex flex-wrap items-center gap-2.5 mb-2">
           <span className="px-3 py-1 rounded-full bg-white/20 text-xs font-semibold backdrop-blur-xs tracking-wide">

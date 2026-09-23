@@ -17,19 +17,20 @@ import {
   Home as HomeIcon,
   Star,
   GraduationCap,
-  Bell
+  Bell,
+  Download,
+  Loader2
 } from 'lucide-react';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { TodayGateDuty } from '../components/TodayGateDuty';
 import { TodayLunchDuty } from '../components/TodayLunchDuty';
 import { TodayMeal } from '../components/TodayMeal';
-import { ScheduleAlertBanner } from '../components/ScheduleAlertBanner';
-import { NotificationCenterModal } from '../components/NotificationCenterModal';
 import { ClassTimetableCard } from '../components/ClassTimetableCard';
 import { BookmarkSection } from '../components/BookmarkSection';
 import { TodayScheduleNotificationToast } from '../components/TodayScheduleNotificationToast';
 import { useBookmarks } from '../hooks/useBookmarks';
+import { exportElementAsPng } from '../lib/exportImage';
 import { fetchTeachers, getDefaultTeachers, fetchClassTimetables, getDefaultClassTimetables } from '../lib/store';
 import { 
   Teacher, 
@@ -69,6 +70,24 @@ export const Home: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isTodayNotificationOpen, setIsTodayNotificationOpen] = useState(false);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [isExportingTeacher, setIsExportingTeacher] = useState(false);
+  const teacherCardRef = useRef<HTMLDivElement>(null);
+
+  const handleExportTeacherTimetable = async () => {
+    if (!teacherCardRef.current || !selectedTeacher || isExportingTeacher) return;
+    try {
+      setIsExportingTeacher(true);
+      await exportElementAsPng(teacherCardRef.current, {
+        filename: `${selectedTeacher.name}선생님_시간표`,
+        backgroundColor: '#ffffff'
+      });
+    } catch (err) {
+      console.error('Failed to export teacher timetable:', err);
+      alert('시간표 이미지 저장 중 오류가 발생했습니다.');
+    } finally {
+      setIsExportingTeacher(false);
+    }
+  };
 
   // Auto show today's schedule notification on app startup
   useEffect(() => {
@@ -903,15 +922,6 @@ export const Home: React.FC = () => {
               </button>
             )}
             <PWAInstallButton />
-            <button
-              type="button"
-              onClick={() => setIsNotificationCenterOpen(true)}
-              className="relative p-2 text-gray-500 hover:text-rose-600 hover:bg-rose-50 rounded-full transition cursor-pointer"
-              title="수업 변경 및 공강 알림 센터"
-            >
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-white animate-pulse" />
-            </button>
             <button 
               onClick={() => navigate('/admin')}
               className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition"
@@ -956,20 +966,6 @@ export const Home: React.FC = () => {
         onClose={() => setIsTodayNotificationOpen(false)}
         onSelectTeacher={handleSelectTeacherByName}
         onSelectClass={handleSelectClassByCode}
-      />
-
-      {/* Real-time Schedule Change & Free Period Push Banner */}
-      <ScheduleAlertBanner
-        currentTeacherName={selectedTeacher?.name}
-        onSelectTeacher={handleSelectTeacherByName}
-      />
-
-      {/* Schedule Alerts & Free Period Center Modal */}
-      <NotificationCenterModal
-        isOpen={isNotificationCenterOpen}
-        onClose={() => setIsNotificationCenterOpen(false)}
-        onSelectTeacher={handleSelectTeacherByName}
-        currentTeacherName={selectedTeacher?.name}
       />
 
       {/* Toast Alert */}
@@ -1288,7 +1284,7 @@ export const Home: React.FC = () => {
 
         {/* Selected Teacher Details & Timetable */}
         {selectedTeacher ? (
-          <div className="animate-in fade-in slide-in-from-bottom-2 duration-200 space-y-4">
+          <div ref={teacherCardRef} className="animate-in fade-in slide-in-from-bottom-2 duration-200 space-y-4">
             {/* Teacher Header Bar */}
             <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1309,6 +1305,20 @@ export const Home: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleExportTeacherTimetable}
+                    disabled={isExportingTeacher}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-700 bg-gray-50 hover:bg-gray-100 px-3.5 py-2 rounded-xl border border-gray-200 transition shadow-2xs active:scale-95 disabled:opacity-50 cursor-pointer"
+                    title="선생님 시간표 이미지로 저장"
+                  >
+                    {isExportingTeacher ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-gray-600" />
+                    ) : (
+                      <Download className="w-4 h-4 text-gray-600" />
+                    )}
+                    <span>이미지 저장</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleToggleTeacherBookmark(selectedTeacher)}

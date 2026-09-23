@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   UtensilsCrossed, 
   Calendar, 
@@ -11,11 +11,14 @@ import {
   Apple, 
   Info,
   CalendarDays,
-  CheckCircle2
+  CheckCircle2,
+  Download,
+  Loader2
 } from 'lucide-react';
 import { MealDay, MealMonthRecord } from '../types/meal';
 import { fetchMealMonth } from '../lib/mealStore';
 import { getKSTDate } from '../lib/gateDutyStore';
+import { exportElementAsPng } from '../lib/exportImage';
 
 interface TodayMealProps {
   onDateChange?: (dateStr: string) => void;
@@ -26,6 +29,24 @@ export const TodayMeal: React.FC<TodayMealProps> = () => {
   const [loading, setLoading] = useState(true);
   const [dayOffset, setDayOffset] = useState<number>(0);
   const [showFullSchedule, setShowFullSchedule] = useState<boolean>(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const mealCardRef = useRef<HTMLElement>(null);
+
+  const handleExportMealImage = async () => {
+    if (!mealCardRef.current || isExporting) return;
+    try {
+      setIsExporting(true);
+      await exportElementAsPng(mealCardRef.current, {
+        filename: `${targetedDateInfo.month}월_${targetedDateInfo.day}일_상일미디어고_급식식단`,
+        backgroundColor: '#ffffff'
+      });
+    } catch (err) {
+      console.error('Failed to export meal image:', err);
+      alert('급식 식단 이미지 저장 중 오류가 발생했습니다.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // Compute targeted date based on offset
   const targetedDateInfo = useMemo(() => {
@@ -134,7 +155,7 @@ export const TodayMeal: React.FC<TodayMealProps> = () => {
   };
 
   return (
-    <section className="bg-white rounded-2xl shadow-sm border border-orange-100 overflow-hidden mb-6 transition-all duration-300">
+    <section ref={mealCardRef} className="bg-white rounded-2xl shadow-sm border border-orange-100 overflow-hidden mb-6 transition-all duration-300">
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-amber-600 px-4 py-3.5 text-white flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2.5">
@@ -154,43 +175,59 @@ export const TodayMeal: React.FC<TodayMealProps> = () => {
           </div>
         </div>
 
-        {/* Date Navigator Controls */}
-        <div className="flex items-center gap-1 bg-black/15 p-1 rounded-xl backdrop-blur-xs">
-          <button
-            type="button"
-            onClick={() => setDayOffset(prev => prev - 1)}
-            className="p-1.5 rounded-lg text-white/90 hover:text-white hover:bg-white/20 transition cursor-pointer"
-            title="이전 날"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
+        {/* Date Navigator & Export Controls */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1 bg-black/15 p-1 rounded-xl backdrop-blur-xs">
+            <button
+              type="button"
+              onClick={() => setDayOffset(prev => prev - 1)}
+              className="p-1.5 rounded-lg text-white/90 hover:text-white hover:bg-white/20 transition cursor-pointer"
+              title="이전 날"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDayOffset(0)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
+                targetedDateInfo.isToday
+                  ? 'bg-white text-orange-700 shadow-xs'
+                  : 'text-white hover:bg-white/20'
+              }`}
+              title="오늘로 이동"
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>
+                {targetedDateInfo.month}월 {targetedDateInfo.day}일 ({targetedDateInfo.dayOfWeek[0]})
+              </span>
+              {targetedDateInfo.isToday && (
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-600 animate-ping ml-0.5" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDayOffset(prev => prev + 1)}
+              className="p-1.5 rounded-lg text-white/90 hover:text-white hover:bg-white/20 transition cursor-pointer"
+              title="다음 날"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
 
           <button
             type="button"
-            onClick={() => setDayOffset(0)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
-              targetedDateInfo.isToday
-                ? 'bg-white text-orange-700 shadow-xs'
-                : 'text-white hover:bg-white/20'
-            }`}
-            title="오늘로 이동"
+            onClick={handleExportMealImage}
+            disabled={isExporting}
+            className="p-2 rounded-xl bg-white/20 hover:bg-white/30 text-white transition shadow-xs cursor-pointer flex items-center justify-center disabled:opacity-50"
+            title="급식 식단 이미지 저장"
           >
-            <Calendar className="w-3.5 h-3.5" />
-            <span>
-              {targetedDateInfo.month}월 {targetedDateInfo.day}일 ({targetedDateInfo.dayOfWeek[0]})
-            </span>
-            {targetedDateInfo.isToday && (
-              <span className="w-1.5 h-1.5 rounded-full bg-orange-600 animate-ping ml-0.5" />
+            {isExporting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
             )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setDayOffset(prev => prev + 1)}
-            className="p-1.5 rounded-lg text-white/90 hover:text-white hover:bg-white/20 transition cursor-pointer"
-            title="다음 날"
-          >
-            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
       </div>
