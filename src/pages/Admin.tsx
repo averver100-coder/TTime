@@ -179,7 +179,7 @@ export const Admin: React.FC = () => {
           setTargetAccount('sangsang');
         }
       } else {
-        setMessage(res.error || '승인되지 않은 Google 계정입니다.');
+        setMessage(res.error || '승인되지 않은 계정입니다. 관리자에게 권한 등록을 요청하세요.');
       }
     } catch (err: any) {
       setMessage(err?.message || '로그인 검증 중 오류가 발생했습니다.');

@@ -230,7 +230,7 @@ export async function verifyGoogleWhitelist(inputEmail: string): Promise<{ succe
 
     return {
       success: false,
-      error: `승인되지 않은 Google 계정(${targetEmail})입니다. 학교 관리자(${DEFAULT_SUPERADMIN_EMAIL})에게 접근 권한을 요청해 주세요.`
+      error: `승인되지 않은 계정입니다 (${targetEmail}). 관리자에게 권한 등록을 요청하세요.`
     };
   }
 
