@@ -34,6 +34,7 @@ import { TodayScheduleNotificationToast } from '../components/TodayScheduleNotif
 import { useBookmarks } from '../hooks/useBookmarks';
 import { exportElementAsPng } from '../lib/exportImage';
 import { fetchTeachers, getDefaultTeachers, fetchClassTimetables, getDefaultClassTimetables } from '../lib/store';
+import { getKSTDate } from '../lib/gateDutyStore';
 import { 
   Teacher, 
   ClassTimetable,
@@ -139,6 +140,11 @@ export const Home: React.FC = () => {
 
   // Quick class grade filter
   const [activeGradeFilter, setActiveGradeFilter] = useState<'all' | 1 | 2 | 3>('all');
+
+  // Shared date state for Gate Duty and Lunch Duty
+  const [dutyDate, setDutyDate] = useState<string>(() => {
+    return getKSTDate().dateStr;
+  });
 
   // State for detailed today's schedule view and directory mode
   const [showAllTodayPeriods, setShowAllTodayPeriods] = useState(false);
@@ -1827,13 +1833,17 @@ export const Home: React.FC = () => {
             {/* 오늘의 교문 지도 선생님 코너 */}
             <TodayGateDuty 
               teachers={teachers} 
-              onSelectTeacher={handleSelectTeacher} 
+              onSelectTeacher={handleSelectTeacher}
+              selectedDate={dutyDate}
+              onDateChange={setDutyDate}
             />
 
             {/* 오늘의 급식 감독 선생님 코너 */}
             <TodayLunchDuty 
               teachers={teachers} 
-              onSelectTeacher={handleSelectTeacher} 
+              onSelectTeacher={handleSelectTeacher}
+              selectedDate={dutyDate}
+              onDateChange={setDutyDate}
             />
 
             {/* 오늘의 급식 코너 */}
