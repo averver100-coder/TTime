@@ -3,23 +3,31 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Upload, Trash2, ArrowLeft, Eye, EyeOff, KeyRound, UserPlus, Edit3, X, Check, 
   User, Crown, Shield, LogOut, Search, Download, RotateCcw, ShieldCheck, History, 
-  FileDown, FileSpreadsheet, GraduationCap, CalendarDays, Users, Save, CheckCircle, Bell
+  FileDown, FileSpreadsheet, GraduationCap, CalendarDays, Users, Save, CheckCircle, Bell,
+  Mail, ArrowRight, AlertCircle, UserCheck
 } from 'lucide-react';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { AdminGateDutyManager } from '../components/AdminGateDutyManager';
 import { AdminLunchDutyManager } from '../components/AdminLunchDutyManager';
 import { AdminMealManager } from '../components/AdminMealManager';
 import { AdminScheduleAlertSender } from '../components/AdminScheduleAlertSender';
+import { AdminAuditLogViewer } from '../components/AdminAuditLogViewer';
+import { AdminWhitelistManager } from '../components/AdminWhitelistManager';
 import { Footer } from '../components/Footer';
 import { Teacher, ClassTimetable, DayOfWeek, dayNames, periods, KOREAN_CONSONANTS, getChosung, matchKorean, formatClassTitle, matchClassCode, getClassMatchScore, getDayFromIndex } from '../lib/timetableUtils';
 import { 
   fetchTeachers, saveSingleTeacher, deleteSingleTeacher, resetAndUploadTeachers, 
-  verifyAdmin, updateAdminPassword, AdminUser, fetchBackups, createManualBackup, 
+  updateAdminPassword, fetchBackups, createManualBackup, 
   restoreBackup, BackupItem, fetchClassTimetables, saveClassTimetable, 
   resetAndUploadClassTimetables, getDefaultClassTimetables 
 } from '../lib/store';
 import { exportTimetableToExcel, exportClassTimetablesToExcel } from '../lib/excelExport';
 import { parseClassTimetableExcel } from '../lib/excelClassParser';
+import { AdminUser } from '../types/auth';
+import { 
+  verifyGoogleWhitelist, getSavedAdminUser, clearAdminSession, 
+  logAuditEvent, DEFAULT_SUPERADMIN_EMAIL 
+} from '../lib/authWhitelist';
 
 const getTeacherTotalPeriods = (teacher: Teacher): number => {
   let count = 0;
@@ -37,17 +45,24 @@ const getTeacherTotalPeriods = (teacher: Teacher): number => {
 export const Admin: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
-  const [id, setId] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [googleEmail, setGoogleEmail] = useState('');
   
   // Navigation tab
-  const [adminTab, setAdminTab] = useState<'teachers' | 'classes' | 'duties' | 'alerts' | 'settings'>('classes');
+  const [adminTab, setAdminTab] = useState<'classes' | 'teachers' | 'duties' | 'alerts' | 'audit' | 'whitelist' | 'settings'>('classes');
 
   const [targetAccount, setTargetAccount] = useState<'averver' | 'sangsang'>('averver');
   const [newPassword, setNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+
+  // Auto-restore session from storage
+  useEffect(() => {
+    const saved = getSavedAdminUser();
+    if (saved) {
+      setCurrentUser(saved);
+      setIsAuthenticated(true);
+    }
+  }, []);
   
   // Teacher data state
   const [teachers, setTeachers] = useState<Teacher[]>([]);
@@ -148,31 +163,36 @@ export const Admin: React.FC = () => {
     return classes.find(c => c.classCode === selectedClassCode) || classes[0] || null;
   }, [classes, selectedClassCode]);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleGoogleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const user = await verifyAdmin(id, password);
-    setLoading(false);
-    
-    if (user) {
-      setCurrentUser(user);
-      setIsAuthenticated(true);
-      setMessage('');
-      if (user.role === 'superadmin') {
-        setTargetAccount('averver');
+    setMessage('');
+    try {
+      const res = await verifyGoogleWhitelist(googleEmail);
+      if (res.success && res.user) {
+        setCurrentUser(res.user);
+        setIsAuthenticated(true);
+        setMessage('');
+        if (res.user.role === 'superadmin') {
+          setTargetAccount('averver');
+        } else {
+          setTargetAccount('sangsang');
+        }
       } else {
-        setTargetAccount('sangsang');
+        setMessage(res.error || '승인되지 않은 Google 계정입니다.');
       }
-    } else {
-      setMessage('아이디 또는 비밀번호가 올바르지 않습니다.');
+    } catch (err: any) {
+      setMessage(err?.message || '로그인 검증 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleLogout = () => {
+    clearAdminSession();
     setIsAuthenticated(false);
     setCurrentUser(null);
-    setId('');
-    setPassword('');
+    setGoogleEmail('');
     setMessage('');
   };
 
@@ -252,6 +272,17 @@ export const Admin: React.FC = () => {
       setMessage(`${teachersWithIds.length}명의 교원 데이터를 데이터베이스에 저장 중입니다...`);
       await resetAndUploadTeachers(teachersWithIds);
       setTeachers(teachersWithIds);
+
+      // Audit Log
+      await logAuditEvent({
+        operatorId: currentUser?.email || DEFAULT_SUPERADMIN_EMAIL,
+        operatorName: currentUser?.name || '관리자',
+        action: '교원 시간표 일괄 업로드',
+        target: `총 ${teachersWithIds.length}명 교원`,
+        summary: `${format === 'excel' ? '엑셀 정밀 파싱' : 'PDF 파싱'}을 통해 ${teachersWithIds.length}명의 교원 시간표 데이터를 데이터베이스에 일괄 저장 및 반영`,
+        category: 'schedule'
+      }).catch(() => {});
+
       setMessage(
         `성공적으로 ${teachersWithIds.length}명의 시간표를 업데이트했습니다! (${format === 'excel' ? '엑셀 정밀 파싱 완료' : 'PDF 파싱 완료'})`
       );
@@ -295,6 +326,17 @@ export const Admin: React.FC = () => {
       setNewTeacherName('');
       setNewTeacherHomeroom('');
       setShowAddTeacherModal(false);
+
+      // Audit Log
+      await logAuditEvent({
+        operatorId: currentUser?.email || DEFAULT_SUPERADMIN_EMAIL,
+        operatorName: currentUser?.name || '관리자',
+        action: '새 선생님 추가',
+        target: `${trimmed} 선생님`,
+        summary: `교원 [${trimmed}] (담임: ${newTeacherHomeroom ? `${newTeacherHomeroom}반` : '담임 없음'}) 신규 등록`,
+        category: 'teacher'
+      }).catch(() => {});
+
       setMessage(`선생님 "${trimmed}"님이 안전하게 추가되었습니다.`);
     } catch (err) {
       setMessage('선생님 추가 중 오류가 발생했습니다.');
@@ -310,6 +352,17 @@ export const Admin: React.FC = () => {
       // Surgical save: updates ONLY editingTeacher, strictly protecting all other teachers
       await saveSingleTeacher(editingTeacher);
       setTeachers(prev => prev.map(t => t.name === editingTeacher.name ? editingTeacher : t));
+
+      // Audit Log
+      await logAuditEvent({
+        operatorId: currentUser?.email || DEFAULT_SUPERADMIN_EMAIL,
+        operatorName: currentUser?.name || '관리자',
+        action: '선생님 시간표 직접 수정',
+        target: `${editingTeacher.name} 선생님`,
+        summary: `${editingTeacher.name} 선생님의 주간 수업시간표(담임: ${editingTeacher.homeroom || '없음'}) 직접 편집 저장 완료`,
+        category: 'teacher'
+      }).catch(() => {});
+
       setEditingTeacher(null);
       setMessage(`선생님 "${editingTeacher.name}"의 시간표가 안전하게 저장되었습니다.`);
       window.alert(`선생님 "${editingTeacher.name}"의 시간표가 안전하게 저장되었습니다.`);
@@ -327,6 +380,17 @@ export const Admin: React.FC = () => {
       // Surgical delete: deletes ONLY this teacher
       await deleteSingleTeacher(name);
       setTeachers(prev => prev.filter(t => t.name !== name));
+
+      // Audit Log
+      await logAuditEvent({
+        operatorId: currentUser?.email || DEFAULT_SUPERADMIN_EMAIL,
+        operatorName: currentUser?.name || '관리자',
+        action: '선생님 삭제',
+        target: `${name} 선생님`,
+        summary: `교원 [${name}] 계정 및 배정된 주간 수업시간표를 영구 삭제`,
+        category: 'teacher'
+      }).catch(() => {});
+
       setMessage(`선생님 "${name}"님이 삭제되었습니다.`);
     } catch (err) {
       setMessage('선생님 삭제 중 오류가 발생했습니다.');
@@ -365,6 +429,16 @@ export const Admin: React.FC = () => {
     setLoading(true);
     try {
       await createManualBackup();
+
+      await logAuditEvent({
+        operatorId: currentUser?.email || DEFAULT_SUPERADMIN_EMAIL,
+        operatorName: currentUser?.name || '관리자',
+        action: '수동 백업 스냅샷 생성',
+        target: '전체 시간표 데이터',
+        summary: `현재 ${teachers.length}명의 시간표 상태를 수동 백업 스냅샷으로 생성 보존`,
+        category: 'system'
+      }).catch(() => {});
+
       setMessage(`현재 ${teachers.length}명의 시간표가 안전하게 스냅샷 백업되었습니다.`);
       window.alert(`현재 ${teachers.length}명의 시간표가 안전하게 백업되었습니다!`);
     } catch (err) {
@@ -394,6 +468,16 @@ export const Admin: React.FC = () => {
       const restored = await restoreBackup(filename);
       setTeachers(restored);
       setShowBackupModal(false);
+
+      await logAuditEvent({
+        operatorId: currentUser?.email || DEFAULT_SUPERADMIN_EMAIL,
+        operatorName: currentUser?.name || '관리자',
+        action: '시간표 백업 복원',
+        target: filename,
+        summary: `백업 파일 [${filename}] (${count}명)으로 시간표 데이터 복원 실행`,
+        category: 'system'
+      }).catch(() => {});
+
       setMessage(`성공적으로 ${restored.length}명의 시간표 데이터로 복원되었습니다.`);
       window.alert(`성공적으로 ${restored.length}명의 시간표 데이터가 복원되었습니다!`);
     } catch (err) {
@@ -421,6 +505,16 @@ export const Admin: React.FC = () => {
 
       await resetAndUploadClassTimetables(parsedClasses);
       setClasses(parsedClasses);
+
+      await logAuditEvent({
+        operatorId: currentUser?.email || DEFAULT_SUPERADMIN_EMAIL,
+        operatorName: currentUser?.name || '관리자',
+        action: '학급별 시간표 엑셀 업로드',
+        target: `총 ${parsedClasses.length}개 학급`,
+        summary: `엑셀 파일을 분석하여 1~3학년 ${parsedClasses.length}개 학급의 주간 수업시간표를 일괄 갱신`,
+        category: 'class'
+      }).catch(() => {});
+
       setMessage(`성공: 총 ${parsedClasses.length}개 학급(1~3학년)의 수업시간표가 엑셀에서 등록 및 안전하게 저장되었습니다!`);
       window.alert(`총 ${parsedClasses.length}개 학급의 수업시간표가 성공적으로 업로드되었습니다!`);
       if (parsedClasses.length > 0) {
@@ -471,6 +565,16 @@ export const Admin: React.FC = () => {
       await saveClassTimetable(classItem);
       setClasses(prev => prev.map(c => c.classCode === classItem.classCode ? classItem : c));
       setEditingClass(null);
+
+      await logAuditEvent({
+        operatorId: currentUser?.email || DEFAULT_SUPERADMIN_EMAIL,
+        operatorName: currentUser?.name || '관리자',
+        action: '학급 시간표 직접 수정',
+        target: `${formatClassTitle(classItem.classCode)}`,
+        summary: `${formatClassTitle(classItem.classCode)} 주간 수업시간표 교시별 수업 직접 편집 저장`,
+        category: 'class'
+      }).catch(() => {});
+
       setMessage(`${formatClassTitle(classItem.classCode)}의 시간표가 안전하게 저장되었습니다.`);
       window.alert(`${formatClassTitle(classItem.classCode)}의 시간표가 저장되었습니다!`);
     } catch (err) {
@@ -496,6 +600,15 @@ export const Admin: React.FC = () => {
         body: JSON.stringify([])
       }).catch(() => {});
 
+      await logAuditEvent({
+        operatorId: currentUser?.email || DEFAULT_SUPERADMIN_EMAIL,
+        operatorName: currentUser?.name || '관리자',
+        action: '전체 데이터 초기화',
+        target: '전체 시간표 데이터베이스',
+        summary: '위험 작업 실행: 모든 시간표 데이터를 완전히 초기화 삭제함',
+        category: 'system'
+      }).catch(() => {});
+
       setTeachers([]);
       setMessage('모든 시간표 데이터가 완전히 삭제 및 초기화되었습니다.');
       window.alert('데이터가 성공적으로 완전히 삭제 및 초기화되었습니다.');
@@ -509,60 +622,97 @@ export const Admin: React.FC = () => {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-2xl shadow-sm max-w-sm w-full border border-gray-100">
-          <div className="flex justify-center mb-4">
-            <SchoolLogo className="w-20 h-20 sm:w-24 sm:h-24 drop-shadow-sm" onClick={() => navigate('/')} />
-          </div>
-          <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-800">관리자 로그인</h2>
-            <p className="text-xs text-gray-500 mt-1">관리자 계정으로 로그인해 주세요.</p>
-          </div>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">아이디</label>
-              <input
-                type="text"
-                value={id}
-                onChange={(e) => setId(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                required
-              />
+      <div className="min-h-screen bg-slate-100/90 flex items-center justify-center p-4 sm:p-6">
+        <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200/80 animate-in fade-in zoom-in-95 duration-200">
+          {/* Top Navy Header Matching Screenshot */}
+          <div className="bg-[#0e274c] px-6 pt-8 pb-7 text-center relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-b from-blue-900/30 to-transparent pointer-events-none" />
+            
+            {/* Circular School Logo */}
+            <div className="relative mx-auto mb-3.5 w-20 h-20 sm:w-22 sm:h-22 rounded-full bg-white p-2.5 flex items-center justify-center border-4 border-blue-900/70 shadow-lg">
+              <SchoolLogo className="w-full h-full object-contain" onClick={() => navigate('/')} />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">비밀번호</label>
-              <div className="relative">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition pr-10"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
-                >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
+
+            {/* System Title */}
+            <h2 className="text-lg sm:text-xl font-black text-white tracking-tight mb-3">
+              쌤타임 : 실시간 수업 조회 시스템
+            </h2>
+
+            {/* Whitelist Security Badge */}
+            <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#0a1e3b]/90 border border-emerald-500/40 text-emerald-400 rounded-full text-xs font-bold shadow-xs">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Google 계정 화이트리스트 보안 인증</span>
+            </div>
+          </div>
+
+          {/* Bottom White Login Body */}
+          <div className="p-6 sm:p-8 space-y-6">
+            <div className="text-center space-y-1.5">
+              <h3 className="text-xl font-black text-gray-900">
+                Google 계정 로그인
+              </h3>
+              <p className="text-xs text-gray-500 leading-relaxed max-w-xs mx-auto">
+                상일미디어고등학교 Google Workspace 또는 승인된 개인 Google 계정으로 로그인합니다.
+              </p>
+            </div>
+
+            <form onSubmit={handleGoogleLogin} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-gray-800">
+                  Google 계정 이메일
+                </label>
+                <div className="relative flex items-center">
+                  <Mail className="w-4 h-4 text-gray-400 absolute left-3.5 pointer-events-none" />
+                  <input
+                    type="email"
+                    value={googleEmail}
+                    onChange={(e) => setGoogleEmail(e.target.value)}
+                    placeholder="Google 이메일 주소 입력 (예: user@sangil.hs.kr)"
+                    className="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition placeholder:text-gray-400 font-medium"
+                  />
+                </div>
               </div>
-            </div>
-            {message && <p className="text-red-500 text-sm">{message}</p>}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-blue-600 text-white font-medium py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+
+              {message && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 leading-relaxed flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <span>{message}</span>
+                </div>
+              )}
+
+              {/* Google Sign-in Button */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full group py-3 px-4 bg-white hover:bg-gray-50 active:bg-gray-100 border border-gray-300 hover:border-gray-400 rounded-xl shadow-xs transition-all flex items-center justify-between cursor-pointer disabled:opacity-50"
+              >
+                {/* Google 4-color G icon */}
+                <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                  <svg className="w-5 h-5" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                  </svg>
+                </div>
+
+                <span className="font-bold text-gray-800 text-sm sm:text-base">
+                  {loading ? '화이트리스트 보안 검증 중...' : 'Google 계정으로 로그인'}
+                </span>
+
+                <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-gray-700 group-hover:translate-x-0.5 transition-all shrink-0" />
+              </button>
+            </form>
+
+            <button 
+              type="button"
+              onClick={() => navigate('/')} 
+              className="text-xs text-gray-500 hover:text-gray-800 w-full text-center flex items-center justify-center gap-1.5 transition pt-2 cursor-pointer"
             >
-              로그인
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>메인 시간표로 돌아가기</span>
             </button>
-          </form>
-          <button 
-            onClick={() => navigate('/')} 
-            className="mt-4 text-sm text-gray-500 hover:text-gray-700 w-full text-center flex items-center justify-center gap-1"
-          >
-            <ArrowLeft className="w-4 h-4" /> 메인으로 돌아가기
-          </button>
+          </div>
         </div>
       </div>
     );
@@ -592,15 +742,25 @@ export const Admin: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full text-xs font-bold shadow-2xs">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+              <span>Google 화이트리스트 보안 인증</span>
+            </div>
+
             {currentUser?.role === 'superadmin' ? (
               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-300 text-amber-900 rounded-full text-xs font-bold shadow-2xs">
                 <Crown className="w-4 h-4 text-amber-600" />
-                <span>슈퍼어드민 ({currentUser.id})</span>
+                <span>최고관리자 ({currentUser.email || currentUser.id})</span>
               </div>
-            ) : (
+            ) : currentUser?.role === 'admin' ? (
               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-800 rounded-full text-xs font-bold shadow-2xs">
                 <Shield className="w-4 h-4 text-blue-600" />
-                <span>관리자 ({currentUser?.id})</span>
+                <span>관리자 ({currentUser.email || currentUser.id})</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 border border-purple-200 text-purple-800 rounded-full text-xs font-bold shadow-2xs">
+                <UserCheck className="w-4 h-4 text-purple-600" />
+                <span>교직원 ({currentUser?.email || currentUser?.id})</span>
               </div>
             )}
 
@@ -677,6 +837,32 @@ export const Admin: React.FC = () => {
             <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded border border-amber-200">
               준비중
             </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setAdminTab('audit')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              adminTab === 'audit'
+                ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-indigo-100'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
+            }`}
+          >
+            <History className="w-4 h-4 text-indigo-600" />
+            <span>변경 이력 및 감사 로그</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setAdminTab('whitelist')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              adminTab === 'whitelist'
+                ? 'bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-100'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
+            }`}
+          >
+            <UserCheck className="w-4 h-4 text-emerald-600" />
+            <span>Google 승인 계정 관리</span>
           </button>
 
           <button
@@ -1364,6 +1550,19 @@ export const Admin: React.FC = () => {
             </button>
           </section>
         </div>
+      )}
+
+      {/* TAB: 변경 이력 및 감사 로그 (Audit Log) */}
+      {adminTab === 'audit' && (
+        <AdminAuditLogViewer onMessage={(msg) => setMessage(msg)} />
+      )}
+
+      {/* TAB: Google 로그인 승인 계정 관리 (화이트리스트) */}
+      {adminTab === 'whitelist' && (
+        <AdminWhitelistManager
+          currentOperatorEmail={currentUser?.email || DEFAULT_SUPERADMIN_EMAIL}
+          onMessage={(msg) => setMessage(msg)}
+        />
       )}
     </div>
 

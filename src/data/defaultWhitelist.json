@@ -1,0 +1,11 @@
+[
+  {
+    "email": "averver100@gmail.com",
+    "name": "최고관리자 (SuperAdmin)",
+    "role": "superadmin",
+    "roleName": "슈퍼어드민",
+    "department": "시스템 관리국",
+    "createdAt": "2026-09-01T00:00:00.000Z",
+    "lastLoginAt": "2026-10-02T00:21:46.771Z"
+  }
+]

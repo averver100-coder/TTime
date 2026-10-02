@@ -561,6 +561,112 @@ app.post('/api/classes/single', (req, res) => {
   }
 });
 
+// ==========================================
+// Google Whitelist & Audit Log API Endpoints
+// ==========================================
+const WHITELIST_FILE = path.join(process.cwd(), 'src', 'data', 'defaultWhitelist.json');
+const AUDIT_LOGS_FILE = path.join(process.cwd(), 'src', 'data', 'auditLogs.json');
+
+app.get('/api/whitelist', (req, res) => {
+  try {
+    if (fs.existsSync(WHITELIST_FILE)) {
+      const data = fs.readFileSync(WHITELIST_FILE, 'utf-8');
+      return res.setHeader('Content-Type', 'application/json').send(data);
+    }
+    return res.json([]);
+  } catch (err) {
+    console.error('Error reading whitelist:', err);
+    return res.status(500).json({ error: 'Failed to read whitelist' });
+  }
+});
+
+app.post('/api/whitelist/single', (req, res) => {
+  try {
+    const { user } = req.body;
+    if (!user || !user.email) {
+      return res.status(400).json({ error: '유효한 이메일 정보가 필요합니다.' });
+    }
+    let list: any[] = [];
+    if (fs.existsSync(WHITELIST_FILE)) {
+      try {
+        list = JSON.parse(fs.readFileSync(WHITELIST_FILE, 'utf-8'));
+      } catch {
+        list = [];
+      }
+    }
+    const cleanEmail = user.email.toLowerCase().trim();
+    const idx = list.findIndex(u => (u.email || '').toLowerCase().trim() === cleanEmail);
+    if (idx !== -1) {
+      list[idx] = { ...user, email: cleanEmail };
+    } else {
+      list.push({ ...user, email: cleanEmail });
+    }
+    fs.writeFileSync(WHITELIST_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    return res.json({ success: true, count: list.length, user });
+  } catch (err) {
+    console.error('Error upserting whitelist user:', err);
+    return res.status(500).json({ error: '화이트리스트 저장 실패' });
+  }
+});
+
+app.delete('/api/whitelist/:email', (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email).toLowerCase().trim();
+    if (email === 'averver100@gmail.com') {
+      return res.status(400).json({ error: '최고관리자 계정은 삭제할 수 없습니다.' });
+    }
+    if (!fs.existsSync(WHITELIST_FILE)) {
+      return res.json({ success: true, count: 0 });
+    }
+    let list: any[] = JSON.parse(fs.readFileSync(WHITELIST_FILE, 'utf-8'));
+    list = list.filter(u => (u.email || '').toLowerCase().trim() !== email);
+    fs.writeFileSync(WHITELIST_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    return res.json({ success: true, count: list.length });
+  } catch (err) {
+    console.error('Error deleting whitelist user:', err);
+    return res.status(500).json({ error: '화이트리스트 삭제 실패' });
+  }
+});
+
+app.get('/api/audit-logs', (req, res) => {
+  try {
+    if (fs.existsSync(AUDIT_LOGS_FILE)) {
+      const data = fs.readFileSync(AUDIT_LOGS_FILE, 'utf-8');
+      return res.setHeader('Content-Type', 'application/json').send(data);
+    }
+    return res.json([]);
+  } catch (err) {
+    console.error('Error reading audit logs:', err);
+    return res.status(500).json({ error: 'Failed to read audit logs' });
+  }
+});
+
+app.post('/api/audit-logs', (req, res) => {
+  try {
+    const { log } = req.body;
+    if (!log || !log.action || !log.summary) {
+      return res.status(400).json({ error: '유효한 감사 로그 데이터가 필요합니다.' });
+    }
+    let list: any[] = [];
+    if (fs.existsSync(AUDIT_LOGS_FILE)) {
+      try {
+        list = JSON.parse(fs.readFileSync(AUDIT_LOGS_FILE, 'utf-8'));
+      } catch {
+        list = [];
+      }
+    }
+    list.unshift(log);
+    if (list.length > 500) {
+      list = list.slice(0, 500);
+    }
+    fs.writeFileSync(AUDIT_LOGS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    return res.json({ success: true, count: list.length, log });
+  } catch (err) {
+    console.error('Error saving audit log:', err);
+    return res.status(500).json({ error: '감사 로그 저장 실패' });
+  }
+});
+
 // Backup endpoints
 app.get('/api/backups', (req, res) => {
   try {

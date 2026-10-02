@@ -37,5 +37,17 @@ service cloud.firestore {
     match /fcmTokens/{tokenId} {
       allow read, write: if true;
     }
+
+    match /classes/{classId} {
+      allow read, write: if true;
+    }
+
+    match /adminWhitelist/{email} {
+      allow read, write: if true;
+    }
+
+    match /auditLogs/{logId} {
+      allow read, write: if true;
+    }
   }
 }

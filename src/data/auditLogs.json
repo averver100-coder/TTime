@@ -1,0 +1,22 @@
+[
+  {
+    "id": "log_init_001",
+    "operatorId": "averver100@gmail.com",
+    "operatorName": "최고관리자 (SuperAdmin)",
+    "timestamp": "2026-09-01T08:30:00.000Z",
+    "action": "시스템 보안 초기화",
+    "target": "Google OAuth 화이트리스트 보안 시스템",
+    "summary": "Google 계정 기반 화이트리스트 및 감사 로그(Audit Log) 보안 인증 시스템 가동",
+    "category": "system"
+  },
+  {
+    "id": "log_init_002",
+    "operatorId": "averver100@gmail.com",
+    "operatorName": "최고관리자 (SuperAdmin)",
+    "timestamp": "2026-09-01T09:00:00.000Z",
+    "action": "초기 화이트리스트 계정 등록",
+    "target": "averver100@gmail.com 외 3개 계정",
+    "summary": "최고관리자(averver100@gmail.com) 및 교무 행정 화이트리스트 등록",
+    "category": "whitelist"
+  }
+]

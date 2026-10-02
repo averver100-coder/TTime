@@ -56,6 +56,35 @@
         "createdAt": { "type": "number" }
       },
       "required": ["title", "message", "targetTeacher", "type"]
+    },
+    "WhitelistUser": {
+      "title": "WhitelistUser",
+      "description": "Authorized Google email accounts for admin and teacher login",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "roleName": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "lastLoginAt": { "type": "string" }
+      },
+      "required": ["email", "role"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Audit trail logging operator ID, timestamp, action performed, and change summary",
+      "type": "object",
+      "properties": {
+        "operatorId": { "type": "string" },
+        "operatorName": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "action": { "type": "string" },
+        "target": { "type": "string" },
+        "summary": { "type": "string" },
+        "category": { "type": "string" }
+      },
+      "required": ["operatorId", "timestamp", "action", "summary"]
     }
   },
   "firestore": {
@@ -76,6 +105,18 @@
         "$ref": "#/entities/ScheduleAlert"
       },
       "description": "Stores push notifications for schedule changes and free periods."
+    },
+    "adminWhitelist/{email}": {
+      "schema": {
+        "$ref": "#/entities/WhitelistUser"
+      },
+      "description": "Stores whitelisted Google email accounts allowed to log in."
+    },
+    "auditLogs/{logId}": {
+      "schema": {
+        "$ref": "#/entities/AuditLog"
+      },
+      "description": "Stores audit logs recording operator email, timestamp, action performed, and change summary."
     }
   }
 }
