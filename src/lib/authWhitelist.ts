@@ -304,6 +304,36 @@ export async function verifyAuthenticatedGoogleUser(
 }
 
 /**
+ * Format Firebase Auth errors into clear, actionable Korean instructions
+ */
+export function formatFirebaseAuthError(err: any): string {
+  if (!err) return 'Google 로그인 중 오류가 발생했습니다.';
+  const code = String(err.code || '');
+  const msg = String(err.message || '');
+
+  if (code === 'auth/unauthorized-domain' || msg.includes('unauthorized-domain')) {
+    const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'ttime-kappa.vercel.app';
+    return `도메인 승인 오류 (auth/unauthorized-domain): 현재 도메인(${currentHost})이 Firebase 인증 승인 도메인에 등록되어 있지 않습니다. Firebase 콘솔(acquired-myth-1nzsc)의 [Authentication > Settings(설정) > 승인된 도메인(Authorized domains)]에 '${currentHost}'을 추가해 주세요.`;
+  }
+  if (code === 'auth/popup-blocked') {
+    return '브라우저에서 로그인 팝업 창이 차단되었습니다. 주소창의 팝업 차단을 해제하시거나 아래 "모바일 / 팝업 차단 시 리다이렉트 로그인" 버튼을 눌러주세요.';
+  }
+  if (code === 'auth/popup-closed-by-user') {
+    return 'Google 로그인 창이 닫혔습니다. 다시 시도해 주세요.';
+  }
+  if (code === 'auth/cancelled-popup-request') {
+    return '이전 로그인 요청이 취소되었습니다. 다시 시도해 주세요.';
+  }
+  if (code === 'auth/operation-not-allowed') {
+    return 'Firebase 프로젝트에서 Google 로그인 제공업체가 활성화되지 않았습니다. Firebase 콘솔에서 Google 로그인을 사용 설정해 주세요.';
+  }
+  if (msg.includes('403') || code.includes('disallowed_useragent') || msg.includes('disallowed_useragent')) {
+    return 'Google 보안 정책(403 오류): 카카오톡이나 인앱 브라우저에서는 소셜 로그인이 제한됩니다. 기본 브라우저(Safari / Chrome)로 열어주세요.';
+  }
+  return err.message || 'Google 로그인 중 오류가 발생했습니다.';
+}
+
+/**
  * Trigger Real Google Social Login
  * Automatically handles mobile redirect vs desktop popup (with popup-blocked fallback)
  */
@@ -325,7 +355,7 @@ export async function signInWithGoogle(
       console.error('Google signInWithRedirect error:', err);
       return {
         success: false,
-        error: err?.message || 'Google 리다이렉트 로그인 시작 중 오류가 발생했습니다.'
+        error: formatFirebaseAuthError(err)
       };
     }
   }
@@ -361,14 +391,14 @@ export async function signInWithGoogle(
         }
         return {
           success: false,
-          error: redirErr?.message || 'Google 리다이렉트 로그인 전환 중 오류가 발생했습니다.'
+          error: formatFirebaseAuthError(redirErr)
         };
       }
     }
 
     return {
       success: false,
-      error: err?.message || 'Google 로그인 중 오류가 발생했습니다.'
+      error: formatFirebaseAuthError(err)
     };
   }
 }
@@ -392,7 +422,7 @@ export async function checkGoogleRedirectResult(): Promise<{ success: boolean; u
     console.error('getRedirectResult error:', err);
     return {
       success: false,
-      error: err?.message || 'Google 리다이렉트 로그인 결과를 확인하는 중 오류가 발생했습니다.'
+      error: formatFirebaseAuthError(err)
     };
   }
   return null;
