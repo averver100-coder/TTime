@@ -334,14 +334,57 @@ export function formatFirebaseAuthError(err: any): string {
 }
 
 /**
+ * Detect in-app browsers (KakaoTalk, Naver, Instagram, etc.) which block Google OAuth
+ */
+export function detectInAppBrowser(): { isInApp: boolean; name: string } {
+  if (typeof navigator === 'undefined') return { isInApp: false, name: '' };
+  const ua = navigator.userAgent.toLowerCase();
+  if (ua.includes('kakaotalk')) return { isInApp: true, name: '카카오톡' };
+  if (ua.includes('naver')) return { isInApp: true, name: '네이버' };
+  if (ua.includes('instagram')) return { isInApp: true, name: '인스타그램' };
+  if (ua.includes('fb_iab') || ua.includes('fb4a') || ua.includes('fban')) return { isInApp: true, name: '페이스북' };
+  if (ua.includes('line')) return { isInApp: true, name: '라인' };
+  return { isInApp: false, name: '' };
+}
+
+/**
+ * Open URL in default external browser (Safari on iOS, Chrome on Android)
+ */
+export function openExternalBrowser(targetUrl?: string): void {
+  if (typeof window === 'undefined') return;
+  const url = targetUrl || window.location.href;
+  const ua = navigator.userAgent.toLowerCase();
+
+  if (ua.includes('kakaotalk')) {
+    window.location.href = `kakaotalk://web/openExternal?url=${encodeURIComponent(url)}`;
+    return;
+  }
+  if (/android/i.test(navigator.userAgent)) {
+    const clean = url.replace(/^https?:\/\//i, '');
+    window.location.href = `intent://${clean}#Intent;scheme=https;package=com.android.chrome;end`;
+    return;
+  }
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(url).then(() => {
+      window.alert('페이지 주소가 복사되었습니다.\n아이폰의 [Safari] 브라우저를 열고 주소창에 붙여넣어 주세요.');
+    }).catch(() => {
+      window.prompt('아래 주소를 복사하여 Safari 또는 Chrome 브라우저에 붙여넣어 접속하세요:', url);
+    });
+  } else {
+    window.prompt('아래 주소를 복사하여 Safari 또는 Chrome 브라우저에 붙여넣어 접속하세요:', url);
+  }
+}
+
+/**
  * Trigger Real Google Social Login
- * Automatically handles mobile redirect vs desktop popup (with popup-blocked fallback)
+ * Uses direct popup (signInWithPopup) as default for BOTH PC and Mobile (just like dibeot & commute-gilt).
+ * This eliminates ITP/cookie partition hangs on mobile browsers and logs in within 1~2 seconds.
  */
 export async function signInWithGoogle(
   forceRedirect: boolean = false
 ): Promise<{ success: boolean; user?: AdminUser; error?: string; redirecting?: boolean }> {
-  // Check if mobile or explicitly requested redirect
-  if (forceRedirect || isMobileDevice()) {
+  // If explicitly requested redirect (e.g. from popup-blocked option)
+  if (forceRedirect) {
     try {
       if (typeof window !== 'undefined') {
         sessionStorage.setItem('ssamtime_auth_redirect_in_progress', 'true');
@@ -360,7 +403,7 @@ export async function signInWithGoogle(
     }
   }
 
-  // Desktop popup flow with fallback to redirect
+  // Direct popup flow for BOTH PC and Mobile (fast 1~2s response, no page reload, no ITP cookie drop)
   try {
     const cred = await signInWithPopup(auth, googleProvider);
     if (!cred || !cred.user) {
@@ -371,12 +414,17 @@ export async function signInWithGoogle(
     }
     return await verifyAuthenticatedGoogleUser(cred.user);
   } catch (err: any) {
-    console.warn('Google signInWithPopup error/notice:', err);
-    // If popup blocked or not supported, seamlessly fallback to redirect
+    console.warn('Google signInWithPopup notice/error:', err);
+    // User voluntarily closed the popup
+    if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+      return {
+        success: false,
+        error: 'Google 로그인 창이 닫혔습니다. 다시 시도해 주세요.'
+      };
+    }
+    // If popup is blocked by browser configuration, seamlessly fallback to redirect
     if (
       err.code === 'auth/popup-blocked' ||
-      err.code === 'auth/popup-closed-by-user' ||
-      err.code === 'auth/cancelled-popup-request' ||
       err.code === 'auth/operation-not-supported-in-this-environment'
     ) {
       try {

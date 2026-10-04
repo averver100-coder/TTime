@@ -30,6 +30,8 @@ import {
   checkGoogleRedirectResult,
   verifyAuthenticatedGoogleUser,
   isMobileDevice,
+  detectInAppBrowser,
+  openExternalBrowser,
   getSavedAdminUser, 
   clearAdminSession, 
   logAuditEvent, 
@@ -56,6 +58,9 @@ export const Admin: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
   const [googleEmail, setGoogleEmail] = useState('');
   
+  // In-app browser detection
+  const inAppInfo = useMemo(() => detectInAppBrowser(), []);
+
   // Navigation tab
   const [adminTab, setAdminTab] = useState<'classes' | 'teachers' | 'duties' | 'alerts' | 'audit' | 'whitelist' | 'settings'>('classes');
 
@@ -79,15 +84,23 @@ export const Admin: React.FC = () => {
         }
       }
 
-      // Check if user is returning from a Google OAuth redirect flow
+      // Check ONLY if user explicitly triggered a Google OAuth redirect flow
       const hasRedirectInProgress = typeof window !== 'undefined' && sessionStorage.getItem('ssamtime_auth_redirect_in_progress');
-      if (hasRedirectInProgress || !saved) {
-        try {
-          if (hasRedirectInProgress) {
-            setLoading(true);
-            setMessage('Google 소셜 로그인 인증 처리 중...');
+      if (hasRedirectInProgress) {
+        setLoading(true);
+        setMessage('Google 계정 인증 확인 중...');
+
+        // Watchdog timer: prevent infinite stuck loading on mobile browsers if redirect result stalls
+        const watchdog = setTimeout(() => {
+          if (isMounted) {
+            setLoading(false);
+            sessionStorage.removeItem('ssamtime_auth_redirect_in_progress');
           }
+        }, 5000);
+
+        try {
           const res = await checkGoogleRedirectResult();
+          clearTimeout(watchdog);
           if (res && isMounted) {
             if (res.success && res.user) {
               setCurrentUser(res.user);
@@ -103,9 +116,13 @@ export const Admin: React.FC = () => {
             }
           }
         } catch (err: any) {
+          clearTimeout(watchdog);
           if (isMounted) setMessage(err?.message || 'Google 리다이렉트 로그인 결과를 처리하는 중 오류가 발생했습니다.');
         } finally {
-          if (isMounted) setLoading(false);
+          if (isMounted) {
+            setLoading(false);
+            sessionStorage.removeItem('ssamtime_auth_redirect_in_progress');
+          }
         }
       }
     };
@@ -117,7 +134,8 @@ export const Admin: React.FC = () => {
   // Listen to Firebase auth state changes for seamless sign-in sync
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser && !currentUser && !isAuthenticated) {
+      const hasRedirectInProgress = typeof window !== 'undefined' && sessionStorage.getItem('ssamtime_auth_redirect_in_progress');
+      if (firebaseUser && !currentUser && !isAuthenticated && hasRedirectInProgress) {
         setLoading(true);
         try {
           const res = await verifyAuthenticatedGoogleUser(firebaseUser);
@@ -137,6 +155,7 @@ export const Admin: React.FC = () => {
           console.error('onAuthStateChanged verification notice:', err);
         } finally {
           setLoading(false);
+          sessionStorage.removeItem('ssamtime_auth_redirect_in_progress');
         }
       }
     });
@@ -244,15 +263,25 @@ export const Admin: React.FC = () => {
   }, [classes, selectedClassCode]);
 
   const handleGoogleLogin = async (forceRedirect: boolean = false) => {
-    setLoading(true);
     setMessage('');
+    setLoading(true);
+
+    // Watchdog timer: automatically unlock loading state after 8 seconds if popup stalls or user closes it
+    const watchdogTimer = setTimeout(() => {
+      setLoading(false);
+    }, 8000);
+
     try {
       const res = await signInWithGoogle(forceRedirect);
       if (res.redirecting) {
-        setMessage('Google 로그인 화면으로 안전하게 이동 중입니다...');
+        setMessage('전체화면 로그인 페이지로 안전하게 이동 중입니다...');
+        setTimeout(() => {
+          setLoading(false);
+        }, 3000);
         return;
       }
       if (res.success && res.user) {
+        clearTimeout(watchdogTimer);
         setCurrentUser(res.user);
         setIsAuthenticated(true);
         setMessage('');
@@ -262,13 +291,18 @@ export const Admin: React.FC = () => {
           setTargetAccount('sangsang');
         }
       } else if (res.error) {
+        clearTimeout(watchdogTimer);
         setMessage(res.error);
       }
     } catch (err: any) {
+      clearTimeout(watchdogTimer);
       console.error('Google login error:', err);
       setMessage(err?.message || 'Google 로그인 중 오류가 발생했습니다.');
     } finally {
-      setLoading(false);
+      if (!forceRedirect) {
+        clearTimeout(watchdogTimer);
+        setLoading(false);
+      }
     }
   };
 
@@ -740,6 +774,27 @@ export const Admin: React.FC = () => {
               </p>
             </div>
 
+            {/* In-app browser detection banner */}
+            {inAppInfo.isInApp && (
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2.5 animate-in fade-in">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-1.5 flex-1">
+                  <div className="font-bold">{inAppInfo.name} 인앱 브라우저 감지됨</div>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    Google 보안 정책상 인앱 브라우저에서는 소셜 로그인이 차단될 수 있습니다. 아래 버튼을 눌러 기본 브라우저로 접속해 주세요.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => openExternalBrowser()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs shadow-2xs transition cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>기본 브라우저(Safari/Chrome)로 열기</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Error Message */}
             {message && (
               <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 leading-relaxed flex items-start gap-2.5 animate-in fade-in">
@@ -750,7 +805,7 @@ export const Admin: React.FC = () => {
 
             {/* Action Buttons */}
             <div className="space-y-3">
-              {/* Primary Google Sign-in Button (Popup on Desktop, Auto Redirect on Mobile) */}
+              {/* Primary Google Sign-in Button (Direct Popup default for BOTH PC & Mobile, matching dibeot/commute-gilt) */}
               <button
                 type="button"
                 onClick={() => handleGoogleLogin(false)}
@@ -768,7 +823,7 @@ export const Admin: React.FC = () => {
                 </div>
 
                 <span className="font-bold text-gray-800 text-sm sm:text-base">
-                  {loading ? 'Google 보안 인증 진행 중...' : 'Google 계정으로 로그인'}
+                  {loading ? 'Google 계정 인증 확인 중...' : 'Google 계정으로 로그인'}
                 </span>
 
                 <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all shrink-0" />
@@ -780,10 +835,10 @@ export const Admin: React.FC = () => {
                 onClick={() => handleGoogleLogin(true)}
                 disabled={loading}
                 className="w-full py-2.5 px-3 bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-900 border border-gray-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer"
-                title="모바일 환경이나 팝업 차단 브라우저에서 전체 화면 리다이렉트로 로그인합니다."
+                title="브라우저 팝업이 차단된 환경에서 전체화면 리다이렉트 방식으로 로그인합니다."
               >
                 <Smartphone className="w-3.5 h-3.5 text-gray-500" />
-                <span>모바일 / 팝업 차단 시 리다이렉트 로그인</span>
+                <span>📱 팝업 차단 환경일 경우: 전체화면 리다이렉트 로그인</span>
               </button>
             </div>
 
