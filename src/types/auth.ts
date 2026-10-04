@@ -7,6 +7,7 @@ export interface AdminUser {
   role: AdminRole;
   roleName: string;
   department?: string;
+  photoURL?: string;
   loginMethod: 'google' | 'whitelist';
 }
 

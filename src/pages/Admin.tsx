@@ -4,7 +4,7 @@ import {
   Upload, Trash2, ArrowLeft, Eye, EyeOff, KeyRound, UserPlus, Edit3, X, Check, 
   User, Crown, Shield, LogOut, Search, Download, RotateCcw, ShieldCheck, History, 
   FileDown, FileSpreadsheet, GraduationCap, CalendarDays, Users, Save, CheckCircle, Bell,
-  Mail, ArrowRight, AlertCircle, UserCheck
+  Mail, ArrowRight, AlertCircle, UserCheck, Smartphone, Globe, ExternalLink
 } from 'lucide-react';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { AdminGateDutyManager } from '../components/AdminGateDutyManager';
@@ -25,9 +25,18 @@ import { exportTimetableToExcel, exportClassTimetablesToExcel } from '../lib/exc
 import { parseClassTimetableExcel } from '../lib/excelClassParser';
 import { AdminUser } from '../types/auth';
 import { 
-  verifyGoogleWhitelist, getSavedAdminUser, clearAdminSession, 
-  logAuditEvent, DEFAULT_SUPERADMIN_EMAIL 
+  verifyGoogleWhitelist, 
+  signInWithGoogle,
+  checkGoogleRedirectResult,
+  verifyAuthenticatedGoogleUser,
+  isMobileDevice,
+  getSavedAdminUser, 
+  clearAdminSession, 
+  logAuditEvent, 
+  DEFAULT_SUPERADMIN_EMAIL 
 } from '../lib/authWhitelist';
+import { auth } from '../lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 const getTeacherTotalPeriods = (teacher: Teacher): number => {
   let count = 0;
@@ -55,14 +64,85 @@ export const Admin: React.FC = () => {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
 
-  // Auto-restore session from storage
+  // Auto-restore session from storage & check Google OAuth redirect result
   useEffect(() => {
-    const saved = getSavedAdminUser();
-    if (saved) {
-      setCurrentUser(saved);
-      setIsAuthenticated(true);
-    }
+    let isMounted = true;
+    const initAuth = async () => {
+      const saved = getSavedAdminUser();
+      if (saved) {
+        setCurrentUser(saved);
+        setIsAuthenticated(true);
+        if (saved.role === 'superadmin') {
+          setTargetAccount('averver');
+        } else {
+          setTargetAccount('sangsang');
+        }
+      }
+
+      // Check if user is returning from a Google OAuth redirect flow
+      const hasRedirectInProgress = typeof window !== 'undefined' && sessionStorage.getItem('ssamtime_auth_redirect_in_progress');
+      if (hasRedirectInProgress || !saved) {
+        try {
+          if (hasRedirectInProgress) {
+            setLoading(true);
+            setMessage('Google 소셜 로그인 인증 처리 중...');
+          }
+          const res = await checkGoogleRedirectResult();
+          if (res && isMounted) {
+            if (res.success && res.user) {
+              setCurrentUser(res.user);
+              setIsAuthenticated(true);
+              setMessage('');
+              if (res.user.role === 'superadmin') {
+                setTargetAccount('averver');
+              } else {
+                setTargetAccount('sangsang');
+              }
+            } else if (res.error) {
+              setMessage(res.error);
+            }
+          }
+        } catch (err: any) {
+          if (isMounted) setMessage(err?.message || 'Google 리다이렉트 로그인 결과를 처리하는 중 오류가 발생했습니다.');
+        } finally {
+          if (isMounted) setLoading(false);
+        }
+      }
+    };
+
+    initAuth();
+    return () => { isMounted = false; };
   }, []);
+
+  // Listen to Firebase auth state changes for seamless sign-in sync
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser && !currentUser && !isAuthenticated) {
+        setLoading(true);
+        try {
+          const res = await verifyAuthenticatedGoogleUser(firebaseUser);
+          if (res.success && res.user) {
+            setCurrentUser(res.user);
+            setIsAuthenticated(true);
+            setMessage('');
+            if (res.user.role === 'superadmin') {
+              setTargetAccount('averver');
+            } else {
+              setTargetAccount('sangsang');
+            }
+          } else if (res.error) {
+            setMessage(res.error);
+          }
+        } catch (err: any) {
+          console.error('onAuthStateChanged verification notice:', err);
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [currentUser, isAuthenticated]);
   
   // Teacher data state
   const [teachers, setTeachers] = useState<Teacher[]>([]);
@@ -163,12 +243,15 @@ export const Admin: React.FC = () => {
     return classes.find(c => c.classCode === selectedClassCode) || classes[0] || null;
   }, [classes, selectedClassCode]);
 
-  const handleGoogleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGoogleLogin = async (forceRedirect: boolean = false) => {
     setLoading(true);
     setMessage('');
     try {
-      const res = await verifyGoogleWhitelist(googleEmail);
+      const res = await signInWithGoogle(forceRedirect);
+      if (res.redirecting) {
+        setMessage('Google 로그인 화면으로 안전하게 이동 중입니다...');
+        return;
+      }
       if (res.success && res.user) {
         setCurrentUser(res.user);
         setIsAuthenticated(true);
@@ -178,18 +261,19 @@ export const Admin: React.FC = () => {
         } else {
           setTargetAccount('sangsang');
         }
-      } else {
-        setMessage(res.error || '승인되지 않은 계정입니다. 관리자에게 권한 등록을 요청하세요.');
+      } else if (res.error) {
+        setMessage(res.error);
       }
     } catch (err: any) {
-      setMessage(err?.message || '로그인 검증 중 오류가 발생했습니다.');
+      console.error('Google login error:', err);
+      setMessage(err?.message || 'Google 로그인 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLogout = () => {
-    clearAdminSession();
+  const handleLogout = async () => {
+    await clearAdminSession();
     setIsAuthenticated(false);
     setCurrentUser(null);
     setGoogleEmail('');
@@ -641,7 +725,7 @@ export const Admin: React.FC = () => {
             {/* Whitelist Security Badge */}
             <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#0a1e3b]/90 border border-emerald-500/40 text-emerald-400 rounded-full text-xs font-bold shadow-xs">
               <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Google 계정 화이트리스트 보안 인증</span>
+              <span>Google OAuth 2.0 공식 보안 인증</span>
             </div>
           </div>
 
@@ -649,42 +733,29 @@ export const Admin: React.FC = () => {
           <div className="p-6 sm:p-8 space-y-6">
             <div className="text-center space-y-1.5">
               <h3 className="text-xl font-black text-gray-900">
-                Google 계정 로그인
+                관리자 Google 소셜 로그인
               </h3>
               <p className="text-xs text-gray-500 leading-relaxed max-w-xs mx-auto">
-                상일미디어고등학교 Google Workspace 또는 승인된 개인 Google 계정으로 로그인합니다.
+                상일미디어고등학교 Google Workspace 또는 승인된 관리자 Google 계정으로 안전하게 로그인합니다.
               </p>
             </div>
 
-            <form onSubmit={handleGoogleLogin} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-800">
-                  Google 계정 이메일
-                </label>
-                <div className="relative flex items-center">
-                  <Mail className="w-4 h-4 text-gray-400 absolute left-3.5 pointer-events-none" />
-                  <input
-                    type="email"
-                    value={googleEmail}
-                    onChange={(e) => setGoogleEmail(e.target.value)}
-                    placeholder="Google 이메일 주소 입력 (예: user@sangil.hs.kr)"
-                    className="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition placeholder:text-gray-400 font-medium"
-                  />
-                </div>
+            {/* Error Message */}
+            {message && (
+              <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 leading-relaxed flex items-start gap-2.5 animate-in fade-in">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                <span className="font-medium break-all">{message}</span>
               </div>
+            )}
 
-              {message && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 leading-relaxed flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-                  <span>{message}</span>
-                </div>
-              )}
-
-              {/* Google Sign-in Button */}
+            {/* Action Buttons */}
+            <div className="space-y-3">
+              {/* Primary Google Sign-in Button (Popup on Desktop, Auto Redirect on Mobile) */}
               <button
-                type="submit"
+                type="button"
+                onClick={() => handleGoogleLogin(false)}
                 disabled={loading}
-                className="w-full group py-3 px-4 bg-white hover:bg-gray-50 active:bg-gray-100 border border-gray-300 hover:border-gray-400 rounded-xl shadow-xs transition-all flex items-center justify-between cursor-pointer disabled:opacity-50"
+                className="w-full group py-3.5 px-4 bg-white hover:bg-gray-50 active:bg-gray-100 border-2 border-gray-300 hover:border-blue-500 rounded-xl shadow-xs transition-all flex items-center justify-between cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {/* Google 4-color G icon */}
                 <div className="w-5 h-5 flex items-center justify-center shrink-0">
@@ -697,12 +768,24 @@ export const Admin: React.FC = () => {
                 </div>
 
                 <span className="font-bold text-gray-800 text-sm sm:text-base">
-                  {loading ? '화이트리스트 보안 검증 중...' : 'Google 계정으로 로그인'}
+                  {loading ? 'Google 보안 인증 진행 중...' : 'Google 계정으로 로그인'}
                 </span>
 
-                <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-gray-700 group-hover:translate-x-0.5 transition-all shrink-0" />
+                <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all shrink-0" />
               </button>
-            </form>
+
+              {/* Explicit Mobile / Redirect Button */}
+              <button
+                type="button"
+                onClick={() => handleGoogleLogin(true)}
+                disabled={loading}
+                className="w-full py-2.5 px-3 bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-900 border border-gray-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                title="모바일 환경이나 팝업 차단 브라우저에서 전체 화면 리다이렉트로 로그인합니다."
+              >
+                <Smartphone className="w-3.5 h-3.5 text-gray-500" />
+                <span>모바일 / 팝업 차단 시 리다이렉트 로그인</span>
+              </button>
+            </div>
 
             <button 
               type="button"

@@ -1,5 +1,13 @@
 import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy, limit } from 'firebase/firestore';
-import { db } from './firebase';
+import { 
+  signInWithPopup, 
+  signInWithRedirect, 
+  getRedirectResult, 
+  signOut, 
+  User as FirebaseUser,
+  onAuthStateChanged
+} from 'firebase/auth';
+import { db, auth, googleProvider } from './firebase';
 import { AdminUser, WhitelistUser, AuditLog } from '../types/auth';
 import defaultWhitelistData from '../data/defaultWhitelist.json';
 import defaultAuditLogsData from '../data/auditLogs.json';
@@ -195,53 +203,231 @@ export async function fetchWhitelist(): Promise<WhitelistUser[]> {
 }
 
 /**
- * Verify Google Account against Whitelist DB
- * - If inputEmail is blank/empty: auto-resolves to SuperAdmin (averver100@gmail.com)
- * - If matches whitelist: grants access and returns AdminUser
- * - If not whitelisted: denies access with a safe security notice
+ * Detect if client is running on a mobile browser where popups are frequently blocked
  */
-export async function verifyGoogleWhitelist(inputEmail: string): Promise<{ success: boolean; user?: AdminUser; error?: string }> {
-  const trimmed = (inputEmail || '').trim().toLowerCase();
+export function isMobileDevice(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
 
-  // If blank, automatically resolve to SuperAdmin (averver100@gmail.com)
-  const targetEmail = trimmed === '' ? DEFAULT_SUPERADMIN_EMAIL.toLowerCase() : trimmed;
-
-  // Basic email syntax check if not empty
-  if (trimmed !== '' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetEmail)) {
+/**
+ * Core validation for an authenticated Firebase Google user against the admin whitelist.
+ * If user is authorized, grants admin access session and returns AdminUser.
+ * If unauthorized, immediately terminates the Firebase Auth session and returns the standard error message.
+ */
+export async function verifyAuthenticatedGoogleUser(
+  firebaseUser: FirebaseUser
+): Promise<{ success: boolean; user?: AdminUser; error?: string }> {
+  if (!firebaseUser || !firebaseUser.email) {
+    await signOut(auth).catch(() => {});
     return {
       success: false,
-      error: '올바른 이메일 주소 형식(예: user@sangil.hs.kr)을 입력해 주세요.'
+      error: 'Google 계정에서 이메일 정보를 확인할 수 없습니다. 다른 Google 계정으로 다시 시도해 주세요.'
     };
   }
 
+  const cleanEmail = firebaseUser.email.toLowerCase().trim();
   const whitelist = await fetchWhitelist();
-  const matched = whitelist.find(u => u.email.toLowerCase() === targetEmail);
+  const matched = whitelist.find(u => u.email.toLowerCase() === cleanEmail);
 
   if (!matched) {
-    // Record failed login audit log
+    // Immediately terminate unwhitelisted session from Firebase Auth
+    await signOut(auth).catch(() => {});
+
+    // Clear local stored session
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.removeItem(CURRENT_ADMIN_STORAGE_KEY);
+        localStorage.removeItem(CURRENT_ADMIN_STORAGE_KEY);
+        sessionStorage.removeItem('ssamtime_auth_redirect_in_progress');
+      } catch {}
+    }
+
+    // Record unauthorized access attempt in audit log
     await logAuditEvent({
-      operatorId: targetEmail,
-      operatorName: '미승인 접근자',
+      operatorId: cleanEmail,
+      operatorName: firebaseUser.displayName || '미승인 접근자',
       action: '로그인 차단',
-      target: targetEmail,
-      summary: `화이트리스트에 등록되지 않은 이메일(${targetEmail})의 관리자 접근이 안전하게 차단되었습니다.`,
+      target: cleanEmail,
+      summary: `화이트리스트에 등록되지 않은 Google 계정(${cleanEmail})의 관리자 접근이 차단되었습니다.`,
       category: 'auth'
     }).catch(() => {});
 
     return {
       success: false,
-      error: `승인되지 않은 계정입니다 (${targetEmail}). 관리자에게 권한 등록을 요청하세요.`
+      error: `승인되지 않은 계정입니다 (${cleanEmail}). 관리자에게 권한 등록을 요청하세요.`
     };
   }
 
   // Update lastLoginAt
   const updatedUser: WhitelistUser = {
     ...matched,
+    name: matched.name || firebaseUser.displayName || '관리자',
     lastLoginAt: new Date().toISOString()
   };
+  saveWhitelistUser(updatedUser, cleanEmail, false).catch(() => {});
 
-  // Asynchronously update lastLoginAt in Firestore and Local API
-  saveWhitelistUser(updatedUser, targetEmail, false).catch(() => {});
+  const adminUser: AdminUser = {
+    id: matched.email,
+    email: matched.email,
+    name: matched.name || firebaseUser.displayName || '관리자',
+    role: matched.role,
+    roleName: matched.roleName,
+    department: matched.department,
+    photoURL: firebaseUser.photoURL || undefined,
+    loginMethod: 'google'
+  };
+
+  // Record successful login audit log
+  await logAuditEvent({
+    operatorId: adminUser.email,
+    operatorName: adminUser.name,
+    action: '관리자 로그인',
+    target: adminUser.email,
+    summary: `${adminUser.name} (${adminUser.roleName}) 계정으로 Google OAuth 2.0 공식 보안 인증 로그인 성공`,
+    category: 'auth'
+  }).catch(() => {});
+
+  // Save session
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.setItem(CURRENT_ADMIN_STORAGE_KEY, JSON.stringify(adminUser));
+      localStorage.setItem(CURRENT_ADMIN_STORAGE_KEY, JSON.stringify(adminUser));
+      sessionStorage.removeItem('ssamtime_auth_redirect_in_progress');
+    } catch {}
+  }
+
+  return {
+    success: true,
+    user: adminUser
+  };
+}
+
+/**
+ * Trigger Real Google Social Login
+ * Automatically handles mobile redirect vs desktop popup (with popup-blocked fallback)
+ */
+export async function signInWithGoogle(
+  forceRedirect: boolean = false
+): Promise<{ success: boolean; user?: AdminUser; error?: string; redirecting?: boolean }> {
+  // Check if mobile or explicitly requested redirect
+  if (forceRedirect || isMobileDevice()) {
+    try {
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('ssamtime_auth_redirect_in_progress', 'true');
+      }
+      await signInWithRedirect(auth, googleProvider);
+      return { success: false, redirecting: true };
+    } catch (err: any) {
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('ssamtime_auth_redirect_in_progress');
+      }
+      console.error('Google signInWithRedirect error:', err);
+      return {
+        success: false,
+        error: err?.message || 'Google 리다이렉트 로그인 시작 중 오류가 발생했습니다.'
+      };
+    }
+  }
+
+  // Desktop popup flow with fallback to redirect
+  try {
+    const cred = await signInWithPopup(auth, googleProvider);
+    if (!cred || !cred.user) {
+      return {
+        success: false,
+        error: 'Google 인증 결과를 수신하지 못했습니다.'
+      };
+    }
+    return await verifyAuthenticatedGoogleUser(cred.user);
+  } catch (err: any) {
+    console.warn('Google signInWithPopup error/notice:', err);
+    // If popup blocked or not supported, seamlessly fallback to redirect
+    if (
+      err.code === 'auth/popup-blocked' ||
+      err.code === 'auth/popup-closed-by-user' ||
+      err.code === 'auth/cancelled-popup-request' ||
+      err.code === 'auth/operation-not-supported-in-this-environment'
+    ) {
+      try {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('ssamtime_auth_redirect_in_progress', 'true');
+        }
+        await signInWithRedirect(auth, googleProvider);
+        return { success: false, redirecting: true };
+      } catch (redirErr: any) {
+        if (typeof window !== 'undefined') {
+          sessionStorage.removeItem('ssamtime_auth_redirect_in_progress');
+        }
+        return {
+          success: false,
+          error: redirErr?.message || 'Google 리다이렉트 로그인 전환 중 오류가 발생했습니다.'
+        };
+      }
+    }
+
+    return {
+      success: false,
+      error: err?.message || 'Google 로그인 중 오류가 발생했습니다.'
+    };
+  }
+}
+
+/**
+ * Handle redirect result when user returns from Google OAuth page
+ */
+export async function checkGoogleRedirectResult(): Promise<{ success: boolean; user?: AdminUser; error?: string } | null> {
+  try {
+    const result = await getRedirectResult(auth);
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('ssamtime_auth_redirect_in_progress');
+    }
+    if (result && result.user) {
+      return await verifyAuthenticatedGoogleUser(result.user);
+    }
+  } catch (err: any) {
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('ssamtime_auth_redirect_in_progress');
+    }
+    console.error('getRedirectResult error:', err);
+    return {
+      success: false,
+      error: err?.message || 'Google 리다이렉트 로그인 결과를 확인하는 중 오류가 발생했습니다.'
+    };
+  }
+  return null;
+}
+
+/**
+ * Legacy whitelist checker (kept for backward compatibility, now requiring exact match)
+ */
+export async function verifyGoogleWhitelist(inputEmail: string): Promise<{ success: boolean; user?: AdminUser; error?: string }> {
+  const trimmed = (inputEmail || '').trim().toLowerCase();
+  if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    return {
+      success: false,
+      error: '올바른 이메일 주소 형식을 입력해 주세요.'
+    };
+  }
+
+  const whitelist = await fetchWhitelist();
+  const matched = whitelist.find(u => u.email.toLowerCase() === trimmed);
+
+  if (!matched) {
+    await logAuditEvent({
+      operatorId: trimmed,
+      operatorName: '미승인 접근자',
+      action: '로그인 차단',
+      target: trimmed,
+      summary: `화이트리스트에 등록되지 않은 이메일(${trimmed})의 관리자 접근이 안전하게 차단되었습니다.`,
+      category: 'auth'
+    }).catch(() => {});
+
+    return {
+      success: false,
+      error: `승인되지 않은 계정입니다 (${trimmed}). 관리자에게 권한 등록을 요청하세요.`
+    };
+  }
 
   const adminUser: AdminUser = {
     id: matched.email,
@@ -252,24 +438,6 @@ export async function verifyGoogleWhitelist(inputEmail: string): Promise<{ succe
     department: matched.department,
     loginMethod: 'google'
   };
-
-  // Record successful login audit log
-  await logAuditEvent({
-    operatorId: adminUser.email,
-    operatorName: adminUser.name,
-    action: '관리자 로그인',
-    target: adminUser.email,
-    summary: `${adminUser.name} (${adminUser.roleName}) 계정으로 Google 화이트리스트 보안 인증 로그인 성공`,
-    category: 'auth'
-  }).catch(() => {});
-
-  // Save session
-  if (typeof window !== 'undefined') {
-    try {
-      sessionStorage.setItem(CURRENT_ADMIN_STORAGE_KEY, JSON.stringify(adminUser));
-      localStorage.setItem(CURRENT_ADMIN_STORAGE_KEY, JSON.stringify(adminUser));
-    } catch {}
-  }
 
   return {
     success: true,
@@ -293,13 +461,17 @@ export function getSavedAdminUser(): AdminUser | null {
 }
 
 /**
- * Clear authenticated session
+ * Clear authenticated session and sign out from Firebase Auth
  */
-export function clearAdminSession(): void {
+export async function clearAdminSession(): Promise<void> {
+  try {
+    await signOut(auth).catch(() => {});
+  } catch {}
   if (typeof window !== 'undefined') {
     try {
       sessionStorage.removeItem(CURRENT_ADMIN_STORAGE_KEY);
       localStorage.removeItem(CURRENT_ADMIN_STORAGE_KEY);
+      sessionStorage.removeItem('ssamtime_auth_redirect_in_progress');
     } catch {}
   }
 }
