@@ -1115,7 +1115,7 @@ export const Home: React.FC = () => {
         <div className="flex items-center gap-1.5">
           <Clock className="w-3.5 h-3.5 animate-pulse text-blue-200" />
           <span>
-            {currentTime.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}
+            {currentTime.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
           </span>
           <span className="font-bold font-mono bg-blue-700/80 px-2 py-0.5 rounded text-blue-100 text-[11px]">
             {currentTime.toLocaleTimeString('ko-KR')}

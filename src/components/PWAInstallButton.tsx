@@ -130,19 +130,17 @@ export const PWAInstallButton: React.FC = () => {
         </div>
       )}
 
-      {/* Header Install Button - Shown ONLY on mobile (Hidden on PC as requested) */}
-      {!isDesktop && (
-        <button
-          type="button"
-          onClick={handleInstallAction}
-          disabled={isInstalling}
-          className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition shadow-2xs hover:shadow-xs active:scale-95 disabled:opacity-60"
-          title="홈 화면에 앱 설치하기"
-        >
-          <Download className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-          <span className="whitespace-nowrap">앱 설치</span>
-        </button>
-      )}
+      {/* Header Install Button - Shown on both desktop and mobile */}
+      <button
+        type="button"
+        onClick={handleInstallAction}
+        disabled={isInstalling}
+        className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition shadow-2xs hover:shadow-xs active:scale-95 disabled:opacity-60 cursor-pointer"
+        title="바탕화면 및 홈 화면에 앱 설치하기"
+      >
+        <Download className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+        <span className="whitespace-nowrap">앱 설치</span>
+      </button>
 
       {/* Floating Bottom Install Banner - Centered on screen */}
       {showBottomBanner && !showModal && (

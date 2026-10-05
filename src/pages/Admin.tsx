@@ -7,6 +7,7 @@ import {
   Mail, ArrowRight, AlertCircle, UserCheck, Smartphone, Globe, ExternalLink
 } from 'lucide-react';
 import { SchoolLogo } from '../components/SchoolLogo';
+import { PWAInstallButton } from '../components/PWAInstallButton';
 import { AdminGateDutyManager } from '../components/AdminGateDutyManager';
 import { AdminLunchDutyManager } from '../components/AdminLunchDutyManager';
 import { AdminMealManager } from '../components/AdminMealManager';
@@ -840,6 +841,17 @@ export const Admin: React.FC = () => {
                 <Smartphone className="w-3.5 h-3.5 text-gray-500" />
                 <span>📱 팝업 차단 환경일 경우: 전체화면 리다이렉트 로그인</span>
               </button>
+
+              {/* PWA App Install Section on Login Main Screen */}
+              <div className="pt-3.5 border-t border-gray-100 flex items-center justify-between">
+                <div className="text-left">
+                  <div className="text-xs font-bold text-gray-800">바탕화면 / 홈 화면 앱 설치</div>
+                  <div className="text-[11px] text-gray-500">PC 및 모바일에 정식 PWA 앱 설치</div>
+                </div>
+                <div className="shrink-0">
+                  <PWAInstallButton />
+                </div>
+              </div>
             </div>
 
             <button 
