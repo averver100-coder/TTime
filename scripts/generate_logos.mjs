@@ -1,5 +1,24 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+import fs from 'fs';
+import { execSync } from 'child_process';
+import path from 'path';
+
+// Generate mathematically precise, vibrant gold & royal navy shield emblem matching 22_쌤타임.jpg
+function getShieldSvg({ 
+  size = 512, 
+  includeBackground = false, 
+  bgFill = '#ffffff',
+  includeTitle = false,
+  isMaskable = false
+} = {}) {
+  // Coordinate calculations
+  // Target: Symmetrical, elegant heraldic shield
+  // Proportions: Shield width ~360, height ~420 on a 512x512 canvas
+  const scale = isMaskable ? 0.75 : (includeTitle ? 0.72 : 0.92);
+  const transX = (512 - 512 * scale) / 2;
+  const transY = isMaskable ? (512 - 512 * scale) / 2 : (includeTitle ? 16 : (512 - 512 * scale) / 2 - 4);
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="${size}" height="${size}">
   <defs>
     <!-- Metallic Brushed Gold Gradients -->
     <linearGradient id="goldBorderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -48,9 +67,9 @@
     </linearGradient>
   </defs>
 
-  
+  ${includeBackground ? `<rect width="512" height="512" fill="${bgFill}" rx="${isMaskable ? 0 : 88}"/>` : ''}
 
-  <g transform="translate(20.47999999999999, 16.47999999999999) scale(0.92)">
+  <g transform="translate(${transX}, ${transY}) scale(${scale})">
     <!-- SHIELD DROP SHADOW (Clean solid shape shadow for universal compatibility) -->
     <path d="M 94,62 
              Q 256,36 418,62 
@@ -311,5 +330,84 @@
     </g>
   </g>
 
-  
-</svg>
+  ${includeTitle ? `
+  <!-- TITLE & SUBTITLE MATCHING 22_쌤타임.jpg -->
+  <g transform="translate(0, 10)">
+    <!-- Primary Title: 쌤타임 (Large Embossed Gold) -->
+    <text x="258" y="445" 
+          text-anchor="middle" 
+          font-family="'Noto Sans CJK KR', 'Noto Sans KR', sans-serif" 
+          font-size="46" 
+          font-weight="900" 
+          fill="#47320a" 
+          stroke="#47320a"
+          stroke-width="3"
+          letter-spacing="2">쌤타임</text>
+    <text x="256" y="443" 
+          text-anchor="middle" 
+          font-family="'Noto Sans CJK KR', 'Noto Sans KR', sans-serif" 
+          font-size="46" 
+          font-weight="900" 
+          fill="url(#goldTextGrad)" 
+          stroke="#684a0d"
+          stroke-width="1.5"
+          letter-spacing="2">쌤타임</text>
+
+    <!-- Subtitle: 실시간 수업시간표 조회 시스템 -->
+    <text x="256" y="475" 
+          text-anchor="middle" 
+          font-family="'Noto Sans CJK KR', 'Noto Sans KR', sans-serif" 
+          font-size="20" 
+          font-weight="800" 
+          fill="#1b2e50" 
+          letter-spacing="0.5">실시간 수업시간표 조회 시스템</text>
+  </g>` : ''}
+</svg>`;
+}
+
+const publicDir = path.resolve('public');
+
+// 1. Transparent pure vector logo
+fs.writeFileSync(path.join(publicDir, 'logo.svg'), getShieldSvg({ includeBackground: false }), 'utf-8');
+
+// 2. Full badge logo with text (used on light backgrounds or presentation)
+fs.writeFileSync(path.join(publicDir, 'logo-full.svg'), getShieldSvg({ includeBackground: true, bgFill: '#faf9f6', includeTitle: true }), 'utf-8');
+
+// 3. Icon SVG with clean off-white / light cream backing (as in original paper texture)
+fs.writeFileSync(path.join(publicDir, 'pwa-icon-temp.svg'), getShieldSvg({ includeBackground: true, bgFill: '#ffffff' }), 'utf-8');
+
+// 4. Maskable SVG with dark navy backing and extra safe-zone margin
+fs.writeFileSync(path.join(publicDir, 'pwa-maskable-temp.svg'), getShieldSvg({ includeBackground: true, bgFill: '#0c1d3c', isMaskable: true }), 'utf-8');
+
+console.log('SVGs created! Rendering PNGs via rsvg-convert...');
+
+// 5. Render PNGs using rsvg-convert (which now executes with 0 filter errors!)
+execSync(`rsvg-convert -w 512 -h 512 -f png -o "${path.join(publicDir, 'logo.png')}" "${path.join(publicDir, 'logo.svg')}"`);
+console.log('✓ Rendered logo.png (512x512)');
+
+execSync(`rsvg-convert -w 192 -h 192 -f png -o "${path.join(publicDir, 'pwa-192x192.png')}" "${path.join(publicDir, 'pwa-icon-temp.svg')}"`);
+console.log('✓ Rendered pwa-192x192.png');
+
+execSync(`rsvg-convert -w 512 -h 512 -f png -o "${path.join(publicDir, 'pwa-512x512.png')}" "${path.join(publicDir, 'pwa-icon-temp.svg')}"`);
+console.log('✓ Rendered pwa-512x512.png');
+
+execSync(`rsvg-convert -w 512 -h 512 -f png -o "${path.join(publicDir, 'pwa-maskable-512x512.png')}" "${path.join(publicDir, 'pwa-maskable-temp.svg')}"`);
+console.log('✓ Rendered pwa-maskable-512x512.png');
+
+execSync(`rsvg-convert -w 180 -h 180 -f png -o "${path.join(publicDir, 'apple-touch-icon.png')}" "${path.join(publicDir, 'pwa-icon-temp.svg')}"`);
+console.log('✓ Rendered apple-touch-icon.png');
+
+// 6. Favicon
+execSync(`rsvg-convert -w 48 -h 48 -f png -o "${path.join(publicDir, 'favicon-48.png')}" "${path.join(publicDir, 'logo.svg')}"`);
+execSync(`convert "${path.join(publicDir, 'favicon-48.png')}" -define icon:auto-resize=48,32,16 "${path.join(publicDir, 'favicon.ico')}"`);
+console.log('✓ Rendered favicon.ico');
+
+// Clean up temp files
+fs.unlinkSync(path.join(publicDir, 'pwa-icon-temp.svg'));
+fs.unlinkSync(path.join(publicDir, 'pwa-maskable-temp.svg'));
+fs.unlinkSync(path.join(publicDir, 'favicon-48.png'));
+
+// Copy to src/assets/images
+fs.copyFileSync(path.join(publicDir, 'logo.png'), path.resolve('src/assets/images/logo.png'));
+
+console.log('All icons generated successfully with vibrant gold and royal navy details!');

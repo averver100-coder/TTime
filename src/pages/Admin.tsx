@@ -746,14 +746,14 @@ export const Admin: React.FC = () => {
           <div className="bg-[#0e274c] px-6 pt-8 pb-7 text-center relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-b from-blue-900/30 to-transparent pointer-events-none" />
             
-            {/* Circular School Logo */}
-            <div className="relative mx-auto mb-3.5 w-20 h-20 sm:w-22 sm:h-22 rounded-full bg-white p-2.5 flex items-center justify-center border-4 border-blue-900/70 shadow-lg">
-              <SchoolLogo className="w-full h-full object-contain" onClick={() => navigate('/')} />
+            {/* Circular Emblem Logo */}
+            <div className="relative mx-auto mb-3.5 w-22 h-22 sm:w-24 sm:h-24 rounded-full bg-white p-2 flex items-center justify-center border-4 border-amber-400/80 shadow-xl ring-2 ring-blue-950/40">
+              <SchoolLogo className="w-full h-full object-contain drop-shadow-sm" onClick={() => navigate('/')} />
             </div>
 
             {/* System Title */}
             <h2 className="text-lg sm:text-xl font-black text-white tracking-tight mb-3">
-              쌤타임 : 실시간 수업 조회 시스템
+              쌤타임 : 실시간 수업시간표 조회 시스템
             </h2>
 
             {/* Whitelist Security Badge */}

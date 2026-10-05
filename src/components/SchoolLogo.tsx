@@ -9,7 +9,7 @@ interface SchoolLogoProps {
 export const SchoolLogo: React.FC<SchoolLogoProps> = ({ 
   className = "w-14 h-14", 
   onClick,
-  alt = "상일미디어고등학교 로고"
+  alt = "쌤타임 - 실시간 수업시간표 조회 시스템 로고"
 }) => {
   return (
     <img

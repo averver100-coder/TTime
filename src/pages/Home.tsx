@@ -1080,10 +1080,9 @@ export const Home: React.FC = () => {
               className="w-16 h-16 sm:w-20 sm:h-20 object-contain shrink-0 drop-shadow-sm transition-transform group-hover:scale-105 active:scale-95"
             />
             <div className="flex flex-col justify-center min-w-0">
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-800 tracking-tight leading-tight">쌤타임</h1>
-              <div className="text-[11px] sm:text-xs font-medium text-gray-500 leading-tight mt-0.5">
-                <span className="block whitespace-nowrap">상일미디어고등학교</span>
-                <span className="block whitespace-nowrap">실시간 수업시간표</span>
+              <h1 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight leading-tight">쌤타임</h1>
+              <div className="text-[11px] sm:text-xs font-semibold text-gray-600 leading-tight mt-0.5">
+                <span className="block whitespace-nowrap">실시간 수업시간표 조회 시스템</span>
               </div>
             </div>
           </div>

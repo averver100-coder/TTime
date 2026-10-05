@@ -48,9 +48,9 @@
     </linearGradient>
   </defs>
 
-  
+  <rect width="512" height="512" fill="#faf9f6" rx="88"/>
 
-  <g transform="translate(20.47999999999999, 16.47999999999999) scale(0.92)">
+  <g transform="translate(71.68, 16) scale(0.72)">
     <!-- SHIELD DROP SHADOW (Clean solid shape shadow for universal compatibility) -->
     <path d="M 94,62 
              Q 256,36 418,62 
@@ -312,4 +312,35 @@
   </g>
 
   
+  <!-- TITLE & SUBTITLE MATCHING 22_쌤타임.jpg -->
+  <g transform="translate(0, 10)">
+    <!-- Primary Title: 쌤타임 (Large Embossed Gold) -->
+    <text x="258" y="445" 
+          text-anchor="middle" 
+          font-family="'Noto Sans CJK KR', 'Noto Sans KR', sans-serif" 
+          font-size="46" 
+          font-weight="900" 
+          fill="#47320a" 
+          stroke="#47320a"
+          stroke-width="3"
+          letter-spacing="2">쌤타임</text>
+    <text x="256" y="443" 
+          text-anchor="middle" 
+          font-family="'Noto Sans CJK KR', 'Noto Sans KR', sans-serif" 
+          font-size="46" 
+          font-weight="900" 
+          fill="url(#goldTextGrad)" 
+          stroke="#684a0d"
+          stroke-width="1.5"
+          letter-spacing="2">쌤타임</text>
+
+    <!-- Subtitle: 실시간 수업시간표 조회 시스템 -->
+    <text x="256" y="475" 
+          text-anchor="middle" 
+          font-family="'Noto Sans CJK KR', 'Noto Sans KR', sans-serif" 
+          font-size="20" 
+          font-weight="800" 
+          fill="#1b2e50" 
+          letter-spacing="0.5">실시간 수업시간표 조회 시스템</text>
+  </g>
 </svg>
