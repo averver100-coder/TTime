@@ -23,7 +23,7 @@ import {
   Download,
   Loader2
 } from 'lucide-react';
-import { PWAInstallButton } from '../components/PWAInstallButton';
+import { PWAInstallButton, PWAInstallTopBanner } from '../components/PWAInstallButton';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { TodayGateDuty } from '../components/TodayGateDuty';
 import { TodayLunchDuty } from '../components/TodayLunchDuty';
@@ -1165,6 +1165,9 @@ export const Home: React.FC = () => {
       )}
 
       <main className="max-w-2xl mx-auto p-4 mt-2">
+        {/* Top Gradient Floating PWA Install Banner with Pulse Animation */}
+        <PWAInstallTopBanner className="mb-4" />
+
         {/* Next Class 5-Min Reminder Banner ("5분 뒤 2-4반 수업입니다") */}
         {upcoming5MinAlert && (
           <div
