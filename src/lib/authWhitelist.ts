@@ -1,4 +1,15 @@
-import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy, limit } from 'firebase/firestore';
+import { 
+  collection, 
+  getDocs, 
+  getDocsFromServer, 
+  doc, 
+  setDoc, 
+  deleteDoc, 
+  query, 
+  orderBy, 
+  limit, 
+  onSnapshot 
+} from 'firebase/firestore';
 import { 
   signInWithPopup, 
   signInWithRedirect, 
@@ -17,13 +28,15 @@ export const SWR_WHITELIST_CACHE_KEY = 'ssamtime_swr_whitelist_v3';
 export const DELETED_WHITELIST_KEY = 'ssamtime_deleted_whitelist_v3';
 export const SWR_AUDIT_LOGS_CACHE_KEY = 'ssamtime_swr_audit_logs_v2';
 export const CURRENT_ADMIN_STORAGE_KEY = 'ssamtime_current_auth_admin_v2';
+export const MIGRATION_DONE_KEY = 'ssamtime_whitelist_migrated_to_firestore_v2';
 
-// Known legacy example accounts that were provided as initial samples
-const LEGACY_SAMPLE_EMAILS = [
-  'sangsang@sangil.hs.kr',
-  'admin@sangil.hs.kr',
-  'teacher@sangil.hs.kr'
-];
+/**
+ * SuperAdmin verification helper
+ */
+export function isSuperAdminUser(email?: string): boolean {
+  if (!email) return false;
+  return email.toLowerCase().trim() === DEFAULT_SUPERADMIN_EMAIL.toLowerCase();
+}
 
 /**
  * Retrieve set of permanently deleted emails
@@ -40,10 +53,6 @@ export function getDeletedEmails(): Set<string> {
             if (typeof e === 'string' && e.trim()) set.add(e.toLowerCase().trim());
           });
         }
-      } else {
-        // First run on new version: initialize deleted set with legacy sample emails
-        LEGACY_SAMPLE_EMAILS.forEach(e => set.add(e));
-        localStorage.setItem(DELETED_WHITELIST_KEY, JSON.stringify(Array.from(set)));
       }
     } catch {}
   }
@@ -69,6 +78,228 @@ export function unmarkEmailDeleted(email: string): void {
 }
 
 /**
+ * Operation types and error logging helper for Firestore
+ */
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  return errInfo;
+}
+
+/**
+ * Scan all potential local sources for whitelist candidates
+ */
+export function collectLocalWhitelistCandidates(): Map<string, WhitelistUser> {
+  const localCandidates = new Map<string, WhitelistUser>();
+  const deletedSet = getDeletedEmails();
+
+  // 1. Candidate from default JSON seed
+  if (Array.isArray(defaultWhitelistData)) {
+    defaultWhitelistData.forEach((u: any) => {
+      if (u && u.email && typeof u.email === 'string') {
+        const clean = u.email.toLowerCase().trim();
+        if (!deletedSet.has(clean)) {
+          localCandidates.set(clean, { ...u, email: clean });
+        }
+      }
+    });
+  }
+
+  // 2. Candidates from various client localStorage & sessionStorage keys (PC & mobile environments)
+  if (typeof window !== 'undefined') {
+    const keysToCheck = [
+      SWR_WHITELIST_CACHE_KEY,
+      'ssamtime_whitelist_v3',
+      'ssamtime_whitelist_v2',
+      'ssamtime_whitelist',
+      'whitelist_users',
+      'admin_whitelist',
+      'adminWhitelist',
+      'whitelist',
+      'ssamtime_admin_whitelist'
+    ];
+    for (const k of keysToCheck) {
+      try {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((u: any) => {
+              if (u && u.email && typeof u.email === 'string') {
+                const clean = u.email.toLowerCase().trim();
+                if (!deletedSet.has(clean)) {
+                  localCandidates.set(clean, { ...u, email: clean });
+                }
+              }
+            });
+          }
+        }
+      } catch {}
+
+      try {
+        const rawSession = sessionStorage.getItem(k);
+        if (rawSession) {
+          const parsed = JSON.parse(rawSession);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((u: any) => {
+              if (u && u.email && typeof u.email === 'string') {
+                const clean = u.email.toLowerCase().trim();
+                if (!deletedSet.has(clean)) {
+                  localCandidates.set(clean, { ...u, email: clean });
+                }
+              }
+            });
+          }
+        }
+      } catch {}
+    }
+  }
+
+  // Always ensure SuperAdmin
+  localCandidates.set(DEFAULT_SUPERADMIN_EMAIL.toLowerCase(), {
+    email: DEFAULT_SUPERADMIN_EMAIL,
+    name: '최고관리자 (SuperAdmin)',
+    role: 'superadmin',
+    roleName: '슈퍼어드민',
+    department: '시스템 관리국',
+    createdAt: '2026-09-01T00:00:00.000Z'
+  });
+
+  return localCandidates;
+}
+
+/**
+ * Automatically migrate locally stored accounts from PC localStorage or default seed into Firestore DB
+ */
+let isMigrating = false;
+export async function migrateLocalWhitelistToFirestore(): Promise<{ migratedCount: number; migratedEmails: string[] }> {
+  if (isMigrating) return { migratedCount: 0, migratedEmails: [] };
+  isMigrating = true;
+  let migratedCount = 0;
+  const migratedEmails: string[] = [];
+
+  try {
+    const localCandidates = collectLocalWhitelistCandidates();
+
+    // Candidates from server API endpoint backup
+    try {
+      const res = await fetch('/api/whitelist').catch(() => null);
+      if (res && res.ok) {
+        const data = await res.json().catch(() => null);
+        if (Array.isArray(data)) {
+          const deletedSet = getDeletedEmails();
+          data.forEach((u: any) => {
+            if (u && u.email && typeof u.email === 'string') {
+              const clean = u.email.toLowerCase().trim();
+              if (!deletedSet.has(clean)) {
+                localCandidates.set(clean, { ...u, email: clean });
+              }
+            }
+          });
+        }
+      }
+    } catch {}
+
+    // Fetch existing Firestore accounts from Server directly
+    const existingFirestoreEmails = new Set<string>();
+    try {
+      let snapshot;
+      try {
+        snapshot = await getDocsFromServer(collection(db, 'adminWhitelist'));
+      } catch {
+        snapshot = await getDocs(collection(db, 'adminWhitelist'));
+      }
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        const em = (data.email || docSnap.id || '').toLowerCase().trim();
+        if (em) existingFirestoreEmails.add(em);
+      });
+    } catch (err) {
+      console.warn('Checking Firestore whitelist during migration:', err);
+    }
+
+    // Upload missing candidates into Firestore adminWhitelist
+    for (const [email, user] of localCandidates.entries()) {
+      if (!existingFirestoreEmails.has(email)) {
+        try {
+          const docRef = doc(db, 'adminWhitelist', email);
+          await setDoc(docRef, {
+            ...user,
+            email,
+            migratedAt: new Date().toISOString()
+          }, { merge: true });
+          migratedCount++;
+          migratedEmails.push(email);
+        } catch (writeErr) {
+          console.warn(`Failed migrating whitelist user ${email} to Firestore:`, writeErr);
+        }
+      }
+    }
+
+    if (migratedCount > 0) {
+      console.log(`[Firestore Migration] Successfully migrated ${migratedCount} whitelist accounts into Firestore DB:`, migratedEmails);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(MIGRATION_DONE_KEY, 'true');
+      }
+    }
+  } catch (err) {
+    console.warn('Error during whitelist migration to Firestore:', err);
+  } finally {
+    isMigrating = false;
+  }
+
+  return { migratedCount, migratedEmails };
+}
+
+// Auto-trigger migration on PC/mobile boot in background
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    migrateLocalWhitelistToFirestore().catch(() => {});
+  }, 1200);
+}
+
+/**
  * Get initial whitelist with local cache fallback
  */
 export function getDefaultWhitelist(): WhitelistUser[] {
@@ -91,10 +322,9 @@ export function getDefaultWhitelist(): WhitelistUser[] {
 }
 
 /**
- * Fetch complete whitelist from SWR, local API, and Firestore
+ * Fetch complete whitelist, prioritizing live server data from Firestore DB
  */
-export async function fetchWhitelist(): Promise<WhitelistUser[]> {
-  const deletedSet = getDeletedEmails();
+export async function fetchWhitelist(forceServer: boolean = true): Promise<WhitelistUser[]> {
   const map = new Map<string, WhitelistUser>();
 
   // Always ensure averver100@gmail.com exists as SuperAdmin
@@ -107,99 +337,154 @@ export async function fetchWhitelist(): Promise<WhitelistUser[]> {
     createdAt: '2026-09-01T00:00:00.000Z'
   });
 
-  // 1. Check local cache
-  if (typeof window !== 'undefined') {
-    try {
-      const cached = localStorage.getItem(SWR_WHITELIST_CACHE_KEY);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed)) {
-          parsed.forEach((u: WhitelistUser) => {
-            if (u && u.email) {
-              const clean = u.email.toLowerCase().trim();
-              if (!deletedSet.has(clean)) {
-                map.set(clean, u);
-              }
-            }
+  // 1. Fetch directly from authoritative Firestore DB Server (bypassing stale local cache)
+  try {
+    let snapshot;
+    if (forceServer) {
+      try {
+        snapshot = await getDocsFromServer(collection(db, 'adminWhitelist'));
+      } catch (serverErr) {
+        console.warn('getDocsFromServer notice, falling back to getDocs:', serverErr);
+        snapshot = await getDocs(collection(db, 'adminWhitelist'));
+      }
+    } else {
+      snapshot = await getDocs(collection(db, 'adminWhitelist'));
+    }
+
+    if (snapshot && !snapshot.empty) {
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data() as WhitelistUser;
+        const email = (data.email || docSnap.id || '').toLowerCase().trim();
+        if (email) {
+          map.set(email, {
+            ...data,
+            email
           });
         }
+      });
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, 'adminWhitelist');
+    console.warn('Firestore live whitelist fetch notice:', err);
+  }
+
+  // 2. Check if local candidates exist that are missing in Firestore (PC migration check)
+  const localCandidates = collectLocalWhitelistCandidates();
+  let hasMissingCandidates = false;
+  for (const [candidateEmail] of localCandidates.entries()) {
+    if (!map.has(candidateEmail)) {
+      hasMissingCandidates = true;
+      break;
+    }
+  }
+
+  if (hasMissingCandidates || map.size <= 1) {
+    // Automatically upload missing PC accounts to Firestore DB
+    await migrateLocalWhitelistToFirestore().catch(() => {});
+
+    // Refresh map with local candidates so current session has full access
+    for (const [candidateEmail, candidateUser] of localCandidates.entries()) {
+      if (!map.has(candidateEmail)) {
+        map.set(candidateEmail, candidateUser);
       }
+    }
+
+    // Try reading fresh Firestore state
+    try {
+      const snap = await getDocs(collection(db, 'adminWhitelist'));
+      snap.forEach(docSnap => {
+        const data = docSnap.data() as WhitelistUser;
+        const email = (data.email || docSnap.id || '').toLowerCase().trim();
+        if (email) {
+          map.set(email, { ...data, email });
+        }
+      });
     } catch {}
   }
 
-  // 2. Fetch from Local API
-  try {
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timeoutId = setTimeout(() => controller?.abort(), 1800);
-    const res = await fetch('/api/whitelist', { signal: controller?.signal }).catch(() => null);
-    clearTimeout(timeoutId);
-    if (res && res.ok) {
-      const data = await res.json().catch(() => null);
-      if (Array.isArray(data) && data.length > 0) {
-        data.forEach((u: WhitelistUser) => {
-          if (u && u.email) {
-            const clean = u.email.toLowerCase().trim();
-            if (!deletedSet.has(clean)) {
-              map.set(clean, u);
-            }
-          }
-        });
-      }
-    }
-  } catch (err) {
-    console.warn('Local API whitelist fetch notice:', err);
-  }
-
-  // 3. Fetch from Firestore
-  try {
-    const firestorePromise = (async () => {
-      const snapshot = await getDocs(collection(db, 'adminWhitelist'));
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data() as WhitelistUser;
-        const email = data.email || docSnap.id;
-        if (email) {
-          const clean = email.toLowerCase().trim();
-          if (!deletedSet.has(clean)) {
-            map.set(clean, {
-              ...data,
-              email: clean
-            });
-          }
-        }
-      });
-    })();
-
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Firestore timeout')), 2500)
-    );
-
-    await Promise.race([firestorePromise, timeoutPromise]);
-  } catch (err) {
-    console.warn('Firestore whitelist fetch notice:', err);
-  }
-
-  // Ensure any marked deleted email is purged
-  for (const deleted of deletedSet) {
-    if (deleted !== DEFAULT_SUPERADMIN_EMAIL.toLowerCase()) {
-      map.delete(deleted);
-    }
-  }
-
   const list = Array.from(map.values()).sort((a, b) => {
-    if (a.role === 'superadmin') return -1;
-    if (b.role === 'superadmin') return 1;
+    if (a.role === 'superadmin' || a.email.toLowerCase() === DEFAULT_SUPERADMIN_EMAIL.toLowerCase()) return -1;
+    if (b.role === 'superadmin' || b.email.toLowerCase() === DEFAULT_SUPERADMIN_EMAIL.toLowerCase()) return 1;
     return a.email.localeCompare(b.email);
   });
 
   if (typeof window !== 'undefined' && list.length > 0) {
     try {
       localStorage.setItem(SWR_WHITELIST_CACHE_KEY, JSON.stringify(list));
-    } catch (e) {
-      console.warn('Failed saving whitelist to SWR cache:', e);
-    }
+    } catch {}
   }
 
   return list;
+}
+
+/**
+ * Real-time two-way synchronization listener for Firestore whitelist.
+ * SuperAdmin accounts receive live pushes from Firestore server.
+ */
+export function subscribeWhitelist(
+  callback: (whitelist: WhitelistUser[]) => void,
+  operatorEmail?: string
+): () => void {
+  // Security guard: Only SuperAdmin is authorized to receive whitelist streams
+  if (operatorEmail && !isSuperAdminUser(operatorEmail)) {
+    console.warn('Unauthorized attempt to subscribe to whitelist stream');
+    callback([]);
+    return () => {};
+  }
+
+  // Trigger background migration check once
+  migrateLocalWhitelistToFirestore().catch(() => {});
+
+  const colRef = collection(db, 'adminWhitelist');
+  const unsubscribe = onSnapshot(
+    colRef,
+    { includeMetadataChanges: true },
+    (snapshot) => {
+      const map = new Map<string, WhitelistUser>();
+
+      // Always ensure SuperAdmin
+      map.set(DEFAULT_SUPERADMIN_EMAIL.toLowerCase(), {
+        email: DEFAULT_SUPERADMIN_EMAIL,
+        name: '최고관리자 (SuperAdmin)',
+        role: 'superadmin',
+        roleName: '슈퍼어드민',
+        department: '시스템 관리국',
+        createdAt: '2026-09-01T00:00:00.000Z'
+      });
+
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data() as WhitelistUser;
+        const email = (data.email || docSnap.id || '').toLowerCase().trim();
+        if (email) {
+          map.set(email, {
+            ...data,
+            email
+          });
+        }
+      });
+
+      const list = Array.from(map.values()).sort((a, b) => {
+        if (a.role === 'superadmin' || a.email.toLowerCase() === DEFAULT_SUPERADMIN_EMAIL.toLowerCase()) return -1;
+        if (b.role === 'superadmin' || b.email.toLowerCase() === DEFAULT_SUPERADMIN_EMAIL.toLowerCase()) return 1;
+        return a.email.localeCompare(b.email);
+      });
+
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(SWR_WHITELIST_CACHE_KEY, JSON.stringify(list));
+        } catch {}
+      }
+
+      callback(list);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'adminWhitelist');
+      console.warn('Firestore onSnapshot whitelist subscription notice, fallback to live fetch:', error);
+      fetchWhitelist(true).then(callback).catch(() => {});
+    }
+  );
+
+  return unsubscribe;
 }
 
 /**
@@ -259,13 +544,13 @@ export async function verifyAuthenticatedGoogleUser(
     };
   }
 
-  // Update lastLoginAt
-  const updatedUser: WhitelistUser = {
-    ...matched,
-    name: matched.name || firebaseUser.displayName || '관리자',
-    lastLoginAt: new Date().toISOString()
-  };
-  saveWhitelistUser(updatedUser, cleanEmail, false).catch(() => {});
+  // Update lastLoginAt directly in Firestore DB
+  try {
+    const userDocRef = doc(db, 'adminWhitelist', cleanEmail);
+    setDoc(userDocRef, {
+      lastLoginAt: new Date().toISOString()
+    }, { merge: true }).catch(() => {});
+  } catch {}
 
   const adminUser: AdminUser = {
     id: matched.email,
@@ -563,11 +848,31 @@ export async function saveWhitelistUser(
   logAudit: boolean = true
 ): Promise<void> {
   const cleanEmail = user.email.trim().toLowerCase();
+  const cleanOperator = (operatorId || '').trim().toLowerCase();
+
+  // Strict SuperAdmin permission check (averver100@gmail.com)
+  if (cleanOperator !== DEFAULT_SUPERADMIN_EMAIL.toLowerCase()) {
+    throw new Error(`화이트리스트 수정 권한이 없습니다. 최고관리자(${DEFAULT_SUPERADMIN_EMAIL}) 계정으로 로그인한 상태에서만 등록·수정할 수 있습니다.`);
+  }
 
   // If this email was previously marked deleted, unmark it
   unmarkEmailDeleted(cleanEmail);
 
-  // 1. Update SWR cache
+  // 1. Direct Firestore DB Write (Single source of truth)
+  try {
+    const ref = doc(db, 'adminWhitelist', cleanEmail);
+    await setDoc(ref, { 
+      ...user, 
+      email: cleanEmail,
+      updatedAt: new Date().toISOString(),
+      updatedBy: cleanOperator
+    }, { merge: true });
+  } catch (err: any) {
+    console.error('Firestore whitelist save error:', err);
+    throw new Error(`Firestore DB 저장 실패: ${err?.message || '네트워크 오류'}`);
+  }
+
+  // 2. Update SWR cache
   if (typeof window !== 'undefined') {
     try {
       const cached = localStorage.getItem(SWR_WHITELIST_CACHE_KEY);
@@ -582,32 +887,20 @@ export async function saveWhitelistUser(
     } catch {}
   }
 
-  // 2. Local API
-  try {
-    await fetch('/api/whitelist/single', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user: { ...user, email: cleanEmail } })
-    });
-  } catch (err) {
-    console.warn('Local API whitelist save error:', err);
-  }
-
-  // 3. Firestore
-  try {
-    const ref = doc(db, 'adminWhitelist', cleanEmail);
-    await setDoc(ref, { ...user, email: cleanEmail }, { merge: true });
-  } catch (err) {
-    console.warn('Firestore whitelist save error:', err);
-  }
+  // 3. Local API backup
+  fetch('/api/whitelist/single', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user: { ...user, email: cleanEmail } })
+  }).catch(() => {});
 
   // 4. Audit Log
   if (logAudit) {
     await logAuditEvent({
-      operatorId,
+      operatorId: cleanOperator,
       action: '화이트리스트 계정 등록/수정',
       target: cleanEmail,
-      summary: `Google 계정 [${cleanEmail}] 권한을 [${user.roleName}] (부서: ${user.department || '미지정'})(으)로 등록/수정하였습니다.`,
+      summary: `Google 계정 [${cleanEmail}] 권한을 [${user.roleName}] (부서: ${user.department || '미지정'})(으)로 Firestore DB에 실시간 등록/수정하였습니다.`,
       category: 'whitelist'
     }).catch(() => {});
   }
@@ -618,14 +911,30 @@ export async function saveWhitelistUser(
  */
 export async function deleteWhitelistUser(email: string, operatorId: string): Promise<void> {
   const cleanEmail = email.trim().toLowerCase();
+  const cleanOperator = (operatorId || '').trim().toLowerCase();
+
+  // Strict SuperAdmin permission check (averver100@gmail.com)
+  if (cleanOperator !== DEFAULT_SUPERADMIN_EMAIL.toLowerCase()) {
+    throw new Error(`화이트리스트 삭제 권한이 없습니다. 최고관리자(${DEFAULT_SUPERADMIN_EMAIL}) 계정으로 로그인한 상태에서만 삭제할 수 있습니다.`);
+  }
+
   if (cleanEmail === DEFAULT_SUPERADMIN_EMAIL.toLowerCase()) {
-    throw new Error('최고관리자(averver100@gmail.com) 계정은 삭제할 수 없습니다.');
+    throw new Error('최고관리자(averver100@gmail.com) 계정은 보안상 삭제할 수 없습니다.');
   }
 
   // Permanently mark as deleted to prevent resurrection from stale caches
   markEmailDeleted(cleanEmail);
 
-  // 1. Update SWR cache
+  // 1. Direct Firestore DB Delete (Single source of truth)
+  try {
+    const ref = doc(db, 'adminWhitelist', cleanEmail);
+    await deleteDoc(ref);
+  } catch (err: any) {
+    console.error('Firestore whitelist delete error:', err);
+    throw new Error(`Firestore DB 삭제 실패: ${err?.message || '네트워크 오류'}`);
+  }
+
+  // 2. Update SWR cache
   if (typeof window !== 'undefined') {
     try {
       const cached = localStorage.getItem(SWR_WHITELIST_CACHE_KEY);
@@ -637,27 +946,15 @@ export async function deleteWhitelistUser(email: string, operatorId: string): Pr
     } catch {}
   }
 
-  // 2. Local API
-  try {
-    await fetch(`/api/whitelist/${encodeURIComponent(cleanEmail)}`, { method: 'DELETE' });
-  } catch (err) {
-    console.warn('Local API whitelist delete error:', err);
-  }
-
-  // 3. Firestore
-  try {
-    const ref = doc(db, 'adminWhitelist', cleanEmail);
-    await deleteDoc(ref);
-  } catch (err) {
-    console.warn('Firestore whitelist delete error:', err);
-  }
+  // 3. Local API backup
+  fetch(`/api/whitelist/${encodeURIComponent(cleanEmail)}`, { method: 'DELETE' }).catch(() => {});
 
   // 4. Audit Log
   await logAuditEvent({
-    operatorId,
+    operatorId: cleanOperator,
     action: '화이트리스트 계정 삭제',
     target: cleanEmail,
-    summary: `Google 계정 [${cleanEmail}]의 관리자 화이트리스트 접근 권한을 삭제 회수하였습니다.`,
+    summary: `Google 계정 [${cleanEmail}]의 관리자 화이트리스트 접근 권한을 Firestore DB에서 실시간 삭제 회수하였습니다.`,
     category: 'whitelist'
   }).catch(() => {});
 }

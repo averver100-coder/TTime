@@ -36,6 +36,7 @@ import {
   getSavedAdminUser, 
   clearAdminSession, 
   logAuditEvent, 
+  isSuperAdminUser,
   DEFAULT_SUPERADMIN_EMAIL 
 } from '../lib/authWhitelist';
 import { auth } from '../lib/firebase';
@@ -132,36 +133,45 @@ export const Admin: React.FC = () => {
     return () => { isMounted = false; };
   }, []);
 
-  // Listen to Firebase auth state changes for seamless sign-in sync
+  // Listen to Firebase auth state changes for seamless sign-in sync across PC, Mobile, and PWA
   useEffect(() => {
+    let isMounted = true;
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      const hasRedirectInProgress = typeof window !== 'undefined' && sessionStorage.getItem('ssamtime_auth_redirect_in_progress');
-      if (firebaseUser && !currentUser && !isAuthenticated && hasRedirectInProgress) {
-        setLoading(true);
-        try {
-          const res = await verifyAuthenticatedGoogleUser(firebaseUser);
-          if (res.success && res.user) {
-            setCurrentUser(res.user);
-            setIsAuthenticated(true);
-            setMessage('');
-            if (res.user.role === 'superadmin') {
-              setTargetAccount('averver');
-            } else {
-              setTargetAccount('sangsang');
+      if (!isMounted) return;
+      if (firebaseUser) {
+        // Automatically restore session if state is not authenticated
+        if (!currentUser || !isAuthenticated) {
+          setLoading(true);
+          try {
+            const res = await verifyAuthenticatedGoogleUser(firebaseUser);
+            if (res.success && res.user && isMounted) {
+              setCurrentUser(res.user);
+              setIsAuthenticated(true);
+              setMessage('');
+              if (res.user.role === 'superadmin') {
+                setTargetAccount('averver');
+              } else {
+                setTargetAccount('sangsang');
+              }
+            } else if (res.error && isMounted) {
+              setMessage(res.error);
             }
-          } else if (res.error) {
-            setMessage(res.error);
+          } catch (err: any) {
+            console.error('onAuthStateChanged verification notice:', err);
+          } finally {
+            if (isMounted) setLoading(false);
+            if (typeof window !== 'undefined') {
+              sessionStorage.removeItem('ssamtime_auth_redirect_in_progress');
+            }
           }
-        } catch (err: any) {
-          console.error('onAuthStateChanged verification notice:', err);
-        } finally {
-          setLoading(false);
-          sessionStorage.removeItem('ssamtime_auth_redirect_in_progress');
         }
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, [currentUser, isAuthenticated]);
   
   // Teacher data state
@@ -1002,18 +1012,21 @@ export const Admin: React.FC = () => {
             <span>변경 이력 및 감사 로그</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setAdminTab('whitelist')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
-              adminTab === 'whitelist'
-                ? 'bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-100'
-                : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
-            }`}
-          >
-            <UserCheck className="w-4 h-4 text-emerald-600" />
-            <span>Google 승인 계정 관리</span>
-          </button>
+          {/* TAB: Google 승인 계정 관리 (화이트리스트) - 최고관리자(averver100@gmail.com) 전용 */}
+          {isSuperAdminUser(currentUser?.email) && (
+            <button
+              type="button"
+              onClick={() => setAdminTab('whitelist')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+                adminTab === 'whitelist'
+                  ? 'bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-100'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
+              }`}
+            >
+              <UserCheck className="w-4 h-4 text-emerald-600" />
+              <span>Google 승인 계정 관리</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -1707,12 +1720,22 @@ export const Admin: React.FC = () => {
         <AdminAuditLogViewer onMessage={(msg) => setMessage(msg)} />
       )}
 
-      {/* TAB: Google 로그인 승인 계정 관리 (화이트리스트) */}
+      {/* TAB: Google 로그인 승인 계정 관리 (화이트리스트) - 최고관리자(averver100@gmail.com) 전용 */}
       {adminTab === 'whitelist' && (
-        <AdminWhitelistManager
-          currentOperatorEmail={currentUser?.email || DEFAULT_SUPERADMIN_EMAIL}
-          onMessage={(msg) => setMessage(msg)}
-        />
+        isSuperAdminUser(currentUser?.email) ? (
+          <AdminWhitelistManager
+            currentOperatorEmail={currentUser?.email || DEFAULT_SUPERADMIN_EMAIL}
+            onMessage={(msg) => setMessage(msg)}
+          />
+        ) : (
+          <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 text-center space-y-3">
+            <AlertCircle className="w-10 h-10 text-red-500 mx-auto" />
+            <h3 className="text-base font-bold text-gray-900">화이트리스트 접근 권한 제한</h3>
+            <p className="text-xs text-gray-500">
+              화이트리스트 승인 계정 목록의 조회 및 관리는 최고관리자({DEFAULT_SUPERADMIN_EMAIL}) 계정으로 로그인한 경우에만 허용됩니다.
+            </p>
+          </div>
+        )
       )}
     </div>
 

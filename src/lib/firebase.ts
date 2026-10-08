@@ -1,6 +1,14 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { 
+  getAuth, 
+  initializeAuth, 
+  GoogleAuthProvider, 
+  browserLocalPersistence, 
+  indexedDBLocalPersistence,
+  browserPopupRedirectResolver,
+  setPersistence 
+} from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Primary Firestore Database app (connected to project firestore database)
@@ -25,7 +33,34 @@ export const authApp = getApps().some(a => a.name === 'authApp')
   ? getApp('authApp') 
   : initializeApp(authFirebaseConfig, 'authApp');
 
-export const auth = getAuth(authApp);
+// Robust Auth persistence: IndexedDB (primary on modern browsers and Mobile PWA standalone) + localStorage fallback
+let authInstance: ReturnType<typeof getAuth>;
+try {
+  authInstance = initializeAuth(authApp, {
+    persistence: [indexedDBLocalPersistence, browserLocalPersistence],
+    popupRedirectResolver: browserPopupRedirectResolver
+  });
+} catch {
+  authInstance = getAuth(authApp);
+}
+export const auth = authInstance;
+
+// Explicitly reinforce persistence across all devices and mobile standalone PWAs
+if (typeof window !== 'undefined') {
+  setPersistence(auth, browserLocalPersistence).catch(err => {
+    console.warn('Firebase Auth browserLocalPersistence setup notice:', err);
+  });
+}
+
+// Test connection to Firestore
+if (typeof window !== 'undefined') {
+  getDocFromServer(doc(db, 'test', 'connection')).catch(error => {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn('Firestore offline notice: Please check network or Firebase configuration.');
+    }
+  });
+}
+
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({
   prompt: 'select_account'
