@@ -22,6 +22,14 @@ import { db, auth, googleProvider } from './firebase';
 import { AdminUser, WhitelistUser, AuditLog } from '../types/auth';
 import defaultWhitelistData from '../data/defaultWhitelist.json';
 import defaultAuditLogsData from '../data/auditLogs.json';
+import { 
+  saveSharedSSOSession, 
+  clearSharedSSOSession, 
+  restoreSharedSSOSession, 
+  buildSuperAdminUser, 
+  SSO_PERSISTENT_STORAGE_KEY,
+  SUPERADMIN_EMAIL
+} from './ssoAuth';
 
 export const DEFAULT_SUPERADMIN_EMAIL = 'averver100@gmail.com';
 export const SWR_WHITELIST_CACHE_KEY = 'ssamtime_swr_whitelist_v3';
@@ -512,6 +520,63 @@ export async function verifyAuthenticatedGoogleUser(
   }
 
   const cleanEmail = firebaseUser.email.toLowerCase().trim();
+
+  // 1. Fast-path for Superadmin (averver100@gmail.com):
+  // Skip whitelist lookup completely, immediately grant superadmin privileges and sync SSO across srider.kr subdomains
+  if (isSuperAdminUser(cleanEmail)) {
+    const superAdminUser: AdminUser = {
+      id: cleanEmail,
+      email: cleanEmail,
+      name: firebaseUser.displayName || '최고관리자 (averver)',
+      role: 'superadmin',
+      roleName: '최고관리자',
+      department: '교무기획부 / 총괄',
+      photoURL: firebaseUser.photoURL || undefined,
+      loginMethod: 'google'
+    };
+
+    // Save session to storage
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem(CURRENT_ADMIN_STORAGE_KEY, JSON.stringify(superAdminUser));
+        localStorage.setItem(CURRENT_ADMIN_STORAGE_KEY, JSON.stringify(superAdminUser));
+        sessionStorage.removeItem('ssamtime_auth_redirect_in_progress');
+      } catch {}
+    }
+
+    // Save multi-layer SSO (shared .srider.kr cookie, PWA persistent backup, and BroadcastChannel)
+    saveSharedSSOSession(superAdminUser);
+
+    // Asynchronously record lastLoginAt in Firestore
+    try {
+      const userDocRef = doc(db, 'adminWhitelist', cleanEmail);
+      setDoc(userDocRef, {
+        lastLoginAt: new Date().toISOString(),
+        email: cleanEmail,
+        name: superAdminUser.name,
+        role: 'superadmin',
+        roleName: '최고관리자',
+        department: '교무기획부 / 총괄'
+      }, { merge: true }).catch(() => {});
+    } catch {}
+
+    // Asynchronously record login audit event
+    logAuditEvent({
+      operatorId: superAdminUser.email,
+      operatorName: superAdminUser.name,
+      action: '최고관리자 로그인',
+      target: superAdminUser.email,
+      summary: `최고관리자(${superAdminUser.email}) Google OAuth 2.0 자동 인증 완료 (srider.kr 서브도메인 SSO 동기화)`,
+      category: 'auth'
+    }).catch(() => {});
+
+    return {
+      success: true,
+      user: superAdminUser
+    };
+  }
+
+  // 2. Regular Whitelisted Teachers verification (intact, preserving all registered teachers)
   const whitelist = await fetchWhitelist();
   const matched = whitelist.find(u => u.email.toLowerCase() === cleanEmail);
 
@@ -809,22 +874,48 @@ export async function verifyGoogleWhitelist(inputEmail: string): Promise<{ succe
 }
 
 /**
- * Get currently authenticated admin user from storage
+ * Get currently authenticated admin user from storage (multi-layer fallback)
  */
 export function getSavedAdminUser(): AdminUser | null {
   if (typeof window === 'undefined') return null;
   try {
     const sessionData = sessionStorage.getItem(CURRENT_ADMIN_STORAGE_KEY);
-    if (sessionData) return JSON.parse(sessionData);
+    if (sessionData) {
+      const parsed = JSON.parse(sessionData);
+      if (parsed && parsed.email) return parsed;
+    }
 
     const localData = localStorage.getItem(CURRENT_ADMIN_STORAGE_KEY);
-    if (localData) return JSON.parse(localData);
+    if (localData) {
+      const parsed = JSON.parse(localData);
+      if (parsed && parsed.email) return parsed;
+    }
+
+    // Synchronous PWA persistent storage backup check
+    const pwaData = localStorage.getItem(SSO_PERSISTENT_STORAGE_KEY);
+    if (pwaData) {
+      const parsed = JSON.parse(pwaData);
+      if (
+        parsed && 
+        parsed.email && 
+        parsed.email.toLowerCase().trim() === SUPERADMIN_EMAIL.toLowerCase() &&
+        parsed.expiresAt && 
+        parsed.expiresAt > Date.now()
+      ) {
+        const superUser = buildSuperAdminUser('PWA 영구 저장소 자동 복원');
+        try {
+          sessionStorage.setItem(CURRENT_ADMIN_STORAGE_KEY, JSON.stringify(superUser));
+          localStorage.setItem(CURRENT_ADMIN_STORAGE_KEY, JSON.stringify(superUser));
+        } catch {}
+        return superUser;
+      }
+    }
   } catch {}
   return null;
 }
 
 /**
- * Clear authenticated session and sign out from Firebase Auth
+ * Clear authenticated session, purge all subdomain cookies (.srider.kr), and sign out from Firebase Auth
  */
 export async function clearAdminSession(): Promise<void> {
   try {
@@ -836,6 +927,8 @@ export async function clearAdminSession(): Promise<void> {
       localStorage.removeItem(CURRENT_ADMIN_STORAGE_KEY);
       sessionStorage.removeItem('ssamtime_auth_redirect_in_progress');
     } catch {}
+    // Purge .srider.kr root & host cookies, PWA persistent tokens, and backend sessions
+    await clearSharedSSOSession().catch(() => {});
   }
 }
 

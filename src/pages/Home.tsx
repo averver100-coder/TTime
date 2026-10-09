@@ -57,6 +57,7 @@ import {
   matchKorean
 } from '../lib/timetableUtils';
 import { Footer } from '../components/Footer';
+import { restoreSharedSSOSession } from '../lib/ssoAuth';
 const ALL_WEEKDAYS: DayOfWeek[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
 export const Home: React.FC = () => {
@@ -103,6 +104,11 @@ export const Home: React.FC = () => {
       }, 700);
       return () => clearTimeout(timer);
     }
+  }, []);
+
+  // Prime cross-subdomain SSO session on app launch (captures URL tokens or srider.kr cookies)
+  useEffect(() => {
+    restoreSharedSSOSession().catch(() => {});
   }, []);
 
   // Bookmarks management

@@ -562,6 +562,111 @@ app.post('/api/classes/single', (req, res) => {
 });
 
 // ==========================================
+// srider.kr Subdomain SSO Session Endpoints
+// ==========================================
+app.get('/api/sso/session', (req, res) => {
+  try {
+    const cookieHeader = req.headers.cookie || '';
+    const match = cookieHeader.match(/(?:^|;\s*)srider_sso_session=([^;]+)/);
+    const superMatch = cookieHeader.match(/(?:^|;\s*)srider_superadmin_auth=([^;]+)/);
+    
+    if (match) {
+      try {
+        const decoded = Buffer.from(decodeURIComponent(match[1]), 'base64').toString('utf-8');
+        const payload = JSON.parse(decoded);
+        if (payload && payload.email === 'averver100@gmail.com' && payload.expiresAt > Date.now()) {
+          return res.json({
+            authenticated: true,
+            user: {
+              id: 'averver100@gmail.com',
+              email: 'averver100@gmail.com',
+              name: payload.name || '최고관리자 (averver)',
+              role: 'superadmin',
+              roleName: '최고관리자',
+              department: '교무기획부 / 총괄',
+              loginMethod: 'google'
+            }
+          });
+        }
+      } catch {}
+    }
+
+    if (superMatch) {
+      const email = decodeURIComponent(superMatch[1]).trim().toLowerCase();
+      if (email === 'averver100@gmail.com') {
+        return res.json({
+          authenticated: true,
+          user: {
+            id: 'averver100@gmail.com',
+            email: 'averver100@gmail.com',
+            name: '최고관리자 (averver)',
+            role: 'superadmin',
+            roleName: '최고관리자',
+            department: '교무기획부 / 총괄',
+            loginMethod: 'google'
+          }
+        });
+      }
+    }
+
+    return res.json({ authenticated: false });
+  } catch {
+    return res.json({ authenticated: false });
+  }
+});
+
+app.post('/api/sso/session', (req, res) => {
+  try {
+    const { user } = req.body;
+    if (user && (user.email || '').toLowerCase().trim() === 'averver100@gmail.com') {
+      const payload = {
+        email: 'averver100@gmail.com',
+        name: user.name || '최고관리자 (averver)',
+        role: 'superadmin',
+        roleName: '최고관리자',
+        department: '교무기획부 / 총괄',
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+        sourceApp: 'ttime.srider.kr'
+      };
+      const token = encodeURIComponent(Buffer.from(JSON.stringify(payload)).toString('base64'));
+      const maxAge = 30 * 24 * 60 * 60; // 30 days
+
+      // Set cookies for .srider.kr subdomain tree and host fallback
+      res.setHeader('Set-Cookie', [
+        `srider_sso_session=${token}; Domain=.srider.kr; Path=/; Max-Age=${maxAge}; SameSite=Lax; Secure`,
+        `srider_superadmin_auth=averver100@gmail.com; Domain=.srider.kr; Path=/; Max-Age=${maxAge}; SameSite=Lax; Secure`,
+        `srider_sso_session=${token}; Path=/; Max-Age=${maxAge}; SameSite=Lax`,
+        `srider_superadmin_auth=averver100@gmail.com; Path=/; Max-Age=${maxAge}; SameSite=Lax`
+      ]);
+      return res.json({ success: true });
+    }
+    return res.status(400).json({ error: '유효한 슈퍼어드민 사용자 정보가 아닙니다.' });
+  } catch {
+    return res.status(500).json({ error: 'SSO 세션 설정 실패' });
+  }
+});
+
+app.post('/api/sso/logout', (req, res) => {
+  try {
+    const expStr = 'Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+    res.setHeader('Set-Cookie', [
+      `srider_sso_session=; Domain=.srider.kr; ${expStr}`,
+      `srider_sso_session=; Domain=srider.kr; ${expStr}`,
+      `srider_sso_session=; ${expStr}`,
+      `srider_superadmin_auth=; Domain=.srider.kr; ${expStr}`,
+      `srider_superadmin_auth=; Domain=srider.kr; ${expStr}`,
+      `srider_superadmin_auth=; ${expStr}`,
+      `srider_user_email=; Domain=.srider.kr; ${expStr}`,
+      `srider_user_email=; ${expStr}`
+    ]);
+    return res.json({ success: true });
+  } catch {
+    return res.status(500).json({ error: 'SSO 로그아웃 처리 실패' });
+  }
+});
+
+// ==========================================
 // Google Whitelist & Audit Log API Endpoints
 // ==========================================
 const WHITELIST_FILE = path.join(process.cwd(), 'src', 'data', 'defaultWhitelist.json');

@@ -39,6 +39,14 @@ import {
   isSuperAdminUser,
   DEFAULT_SUPERADMIN_EMAIL 
 } from '../lib/authWhitelist';
+import { 
+  restoreSharedSSOSession, 
+  saveSharedSSOSession, 
+  listenToSSOBroadcast, 
+  getSisterSubdomainSSOLink, 
+  SISTER_SUBDOMAINS,
+  SUPERADMIN_EMAIL 
+} from '../lib/ssoAuth';
 import { auth } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -71,12 +79,26 @@ export const Admin: React.FC = () => {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
 
-  // Auto-restore session from storage & check Google OAuth redirect result
+  // Auto-restore session from storage & check srider.kr cross-subdomain SSO & Google OAuth redirect
   useEffect(() => {
     let isMounted = true;
     const initAuth = async () => {
-      const saved = getSavedAdminUser();
-      if (saved) {
+      // 1. Check local session storage first
+      let saved = getSavedAdminUser();
+
+      // 2. If not found, restore seamlessly via multi-layer SSO (subdomain cookie, URL tokens, PWA persistent backup)
+      if (!saved) {
+        try {
+          const ssoUser = await restoreSharedSSOSession();
+          if (ssoUser && isMounted) {
+            saved = ssoUser;
+          }
+        } catch (ssoErr) {
+          console.warn('SSO session restoration notice:', ssoErr);
+        }
+      }
+
+      if (saved && isMounted) {
         setCurrentUser(saved);
         setIsAuthenticated(true);
         if (saved.role === 'superadmin') {
@@ -130,7 +152,26 @@ export const Admin: React.FC = () => {
     };
 
     initAuth();
-    return () => { isMounted = false; };
+
+    // Listen to real-time SSO login/logout from other tabs or sister subdomains
+    const stopListening = listenToSSOBroadcast(
+      (ssoUser) => {
+        if (!isMounted) return;
+        setCurrentUser(ssoUser);
+        setIsAuthenticated(true);
+        if (ssoUser.role === 'superadmin') setTargetAccount('averver');
+      },
+      () => {
+        if (!isMounted) return;
+        setCurrentUser(null);
+        setIsAuthenticated(false);
+      }
+    );
+
+    return () => { 
+      isMounted = false; 
+      stopListening();
+    };
   }, []);
 
   // Listen to Firebase auth state changes for seamless sign-in sync across PC, Mobile, and PWA
@@ -139,6 +180,32 @@ export const Admin: React.FC = () => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!isMounted) return;
       if (firebaseUser) {
+        const email = (firebaseUser.email || '').toLowerCase().trim();
+
+        // Avoid unnecessary redundant API calls: if token/session is already authenticated with matching email, reuse local state!
+        if (currentUser && isAuthenticated && (currentUser.email || '').toLowerCase().trim() === email) {
+          return;
+        }
+
+        // Fast-path bypass for Superadmin (averver100@gmail.com): immediate entry
+        if (email === SUPERADMIN_EMAIL.toLowerCase()) {
+          const superUser: AdminUser = {
+            id: SUPERADMIN_EMAIL,
+            email: SUPERADMIN_EMAIL,
+            name: firebaseUser.displayName || '최고관리자 (averver)',
+            role: 'superadmin',
+            roleName: '최고관리자',
+            department: '교무기획부 / 총괄',
+            photoURL: firebaseUser.photoURL || undefined,
+            loginMethod: 'google'
+          };
+          setCurrentUser(superUser);
+          setIsAuthenticated(true);
+          setTargetAccount('averver');
+          saveSharedSSOSession(superUser);
+          return;
+        }
+
         // Automatically restore session if state is not authenticated
         if (!currentUser || !isAuthenticated) {
           setLoading(true);
@@ -935,6 +1002,56 @@ export const Admin: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* srider.kr Subdomains SSO Navigation Hub */}
+        {currentUser?.role === 'superadmin' && (
+          <div className="mb-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 text-white rounded-2xl p-4 shadow-md border border-indigo-800/50">
+            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <span className="flex h-2.5 w-2.5 relative mt-1">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                <div>
+                  <div className="text-xs font-bold flex items-center gap-1.5 text-cyan-300">
+                    <Globe className="w-3.5 h-3.5" />
+                    <span>srider.kr 도메인 교내 통합 관리망 (SSO 연결됨)</span>
+                    <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] rounded-md font-mono">
+                      자동 로그인 활성
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-300 mt-0.5 leading-relaxed">
+                    다른 서브도메인 앱으로 이동 시 별도 로그인 없이 최고관리자({SUPERADMIN_EMAIL}) 권한이 자동으로 승계됩니다.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 flex-wrap w-full lg:w-auto">
+                {SISTER_SUBDOMAINS.map(sister => {
+                  const isCurrent = sister.id === 'ttime';
+                  return (
+                    <a
+                      key={sister.id}
+                      href={isCurrent ? '#' : getSisterSubdomainSSOLink(sister.id)}
+                      onClick={isCurrent ? (e) => e.preventDefault() : undefined}
+                      target={isCurrent ? undefined : '_blank'}
+                      rel="noopener noreferrer"
+                      className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs ${
+                        isCurrent
+                          ? 'bg-blue-600/60 text-cyan-200 border border-cyan-400/40 cursor-default'
+                          : 'bg-white/10 hover:bg-white/20 text-white border border-white/20 cursor-pointer hover:border-cyan-300/60'
+                      }`}
+                      title={sister.desc}
+                    >
+                      <span>{sister.name}</span>
+                      {!isCurrent && <ExternalLink className="w-3 h-3 text-cyan-300 opacity-80" />}
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Admin Navigation Tabs */}
         <div className="flex items-center gap-1.5 p-1.5 bg-gray-200/80 rounded-2xl mb-6 overflow-x-auto shadow-inner">
