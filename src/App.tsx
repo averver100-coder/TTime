@@ -6,10 +6,12 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Home } from './pages/Home';
 import { Admin } from './pages/Admin';
+import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
 
 export default function App() {
   return (
     <BrowserRouter>
+      <PWAUpdatePrompt position="bottom" />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/admin" element={<Admin />} />

@@ -4,7 +4,7 @@ import {
   Upload, Trash2, ArrowLeft, Eye, EyeOff, KeyRound, UserPlus, Edit3, X, Check, 
   User, Crown, Shield, LogOut, Search, Download, RotateCcw, ShieldCheck, History, 
   FileDown, FileSpreadsheet, GraduationCap, CalendarDays, Users, Save, CheckCircle, Bell,
-  Mail, ArrowRight, AlertCircle, UserCheck, Smartphone, Globe, ExternalLink
+  Mail, ArrowRight, AlertCircle, UserCheck, Smartphone, Globe, ExternalLink, RefreshCw
 } from 'lucide-react';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { PWAInstallButton } from '../components/PWAInstallButton';
@@ -47,6 +47,7 @@ import {
   SISTER_SUBDOMAINS,
   SUPERADMIN_EMAIL 
 } from '../lib/ssoAuth';
+import { usePWAUpdate, simulatePWAUpdateForTest } from '../lib/pwaUpdateManager';
 import { auth } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -78,6 +79,16 @@ export const Admin: React.FC = () => {
   const [newPassword, setNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+  const { checkForUpdate, isChecking: isCheckingUpdate } = usePWAUpdate();
+  const [updateCheckToast, setUpdateCheckToast] = useState<string | null>(null);
+
+  const handleAdminCheckUpdate = async () => {
+    const hasUpdate = await checkForUpdate();
+    if (!hasUpdate) {
+      setUpdateCheckToast('현재 최신 버전을 사용 중입니다.');
+      setTimeout(() => setUpdateCheckToast(null), 3000);
+    }
+  };
 
   // Auto-restore session from storage & check srider.kr cross-subdomain SSO & Google OAuth redirect
   useEffect(() => {
@@ -989,6 +1000,28 @@ export const Admin: React.FC = () => {
                 <UserCheck className="w-4 h-4 text-purple-600" />
                 <span>교직원 ({currentUser?.email || currentUser?.id})</span>
               </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleAdminCheckUpdate}
+              disabled={isCheckingUpdate}
+              className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 bg-white hover:bg-blue-50 border border-gray-200 hover:border-blue-200 px-3 py-1.5 rounded-lg transition shadow-2xs cursor-pointer disabled:opacity-50"
+              title="새로운 버전 배포 여부 확인"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin text-blue-600' : ''}`} />
+              <span>{isCheckingUpdate ? '확인 중...' : updateCheckToast || '업데이트 확인'}</span>
+            </button>
+
+            {currentUser?.role === 'superadmin' && (
+              <button
+                type="button"
+                onClick={simulatePWAUpdateForTest}
+                className="hidden sm:flex items-center gap-1 text-[11px] text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1.5 rounded-lg transition shadow-2xs cursor-pointer"
+                title="PWA 업데이트 팝업 미리보기 테스트"
+              >
+                <span>팝업 테스트</span>
+              </button>
             )}
 
             <button
