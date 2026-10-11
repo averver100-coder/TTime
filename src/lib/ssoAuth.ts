@@ -9,6 +9,7 @@ export const SRIDER_ROOT_DOMAIN = 'srider.kr';
 export const SISTER_SUBDOMAINS = [
   { id: 'commute', name: '출퇴근 관리', host: 'commute.srider.kr', desc: '교직원 출퇴근 및 근무 현황' },
   { id: 'device', name: '디바이스 관리', host: 'device.srider.kr', desc: '교내 정보화 기기 및 대여 관리' },
+  { id: 'ipass', name: 'IPass 관리', host: 'ipass.srider.kr', desc: '교직원 IP 및 네트워크 대장 관리' },
   { id: 'ttime', name: '쌤타임 (현재)', host: 'ttime.srider.kr', desc: '실시간 교원/학급 시간표' },
   { id: 'croom', name: '특별실/교실', host: 'croom.srider.kr', desc: '특별실 예약 및 시설 관리' },
   { id: 'dibeot', name: '디벗 관리', host: 'dibeot.srider.kr', desc: '학생 1인1스마트기기 디벗 관리' },
