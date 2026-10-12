@@ -41,7 +41,7 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <h4 className="text-sm font-bold text-white">
-              새로운 업데이트가 있습니다!
+              새로운 업데이트가 있습니다.
             </h4>
             <span className="text-[10px] px-1.5 py-0.5 bg-blue-500/20 text-blue-300 font-bold rounded">
               NEW
@@ -49,7 +49,7 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({
           </div>
 
           <p className="mt-1 text-xs text-slate-300 leading-relaxed">
-            최신 기능과 안정성 개선 사항이 배포되었습니다. 지금 새로고침하여 최신 버전을 적용하세요.
+            최신 버전이 배포되었습니다. 지금 새로고침하여 적용하세요.
           </p>
 
           <div className="mt-3 flex items-center gap-2">
@@ -64,7 +64,7 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({
                 className={`w-3.5 h-3.5 ${isUpdating ? 'animate-spin' : 'animate-spin'}`}
                 style={{ animationDuration: isUpdating ? '1s' : '3s' }}
               />
-              <span>{isUpdating ? '새로고침 적용 중...' : '새로고침 (업데이트)'}</span>
+              <span>{isUpdating ? '새로고침 적용 중...' : '새로운 업데이트가 있습니다. 새로고침'}</span>
             </button>
 
             <button

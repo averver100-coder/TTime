@@ -281,17 +281,7 @@ export const TodayGateDuty: React.FC<TodayGateDutyProps> = ({
               </button>
             )}
 
-            {/* Quick 9월 17일 button for instant verification */}
-            {currentDateStr !== '2026-09-17' && (
-              <button
-                type="button"
-                onClick={() => handleDateChange('2026-09-17')}
-                className="text-[11px] bg-blue-100/70 hover:bg-blue-200/70 text-blue-800 font-semibold px-2 py-1.5 rounded-xl border border-blue-200 transition cursor-pointer"
-                title="9월 17일 교문지도 확인"
-              >
-                9월 17일 조회
-              </button>
-            )}
+
           </div>
         </div>
       </div>

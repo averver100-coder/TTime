@@ -318,17 +318,7 @@ export const TodayLunchDuty: React.FC<TodayLunchDutyProps> = ({
               </button>
             )}
 
-            {/* Quick 9월 17일 button for instant verification */}
-            {currentDateStr !== '2026-09-17' && (
-              <button
-                type="button"
-                onClick={() => handleDateChange('2026-09-17')}
-                className="text-[11px] bg-orange-100/70 hover:bg-orange-200/70 text-orange-800 font-semibold px-2 py-1.5 rounded-xl border border-orange-200 transition cursor-pointer"
-                title="9월 17일 급식감독 확인"
-              >
-                9월 17일 조회
-              </button>
-            )}
+
           </div>
         </div>
       </div>
