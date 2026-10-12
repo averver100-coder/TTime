@@ -135,13 +135,11 @@ export const AdminGateDutyManager: React.FC<AdminGateDutyManagerProps> = ({ teac
         setSelectedMonth(parsedRecord.month);
       }
 
-      // Save to server & Firestore
       await saveGateDutyMonth(parsedRecord);
       setRecord(parsedRecord);
-
-      const msg = `${parsedRecord.year}년 ${parsedRecord.month}월 교문지도 명단(총 ${parsedRecord.duties.length}일)이 성공적으로 업로드 및 저장되었습니다!`;
-      if (onMessage) onMessage(msg);
-      window.alert(msg);
+      const msg = `${parsedRecord.year}년 ${parsedRecord.month}월 교문지도 명단(총 ${parsedRecord.duties.length}일)이 성공적으로 저장되었습니다!`;
+      onMessage?.(msg);
+      alert(msg);
     } catch (err) {
       console.error('File upload failed:', err);
       const errMsg = err instanceof Error ? err.message : '교문지도 파일 업로드 중 오류가 발생했습니다.';

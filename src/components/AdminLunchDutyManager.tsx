@@ -142,13 +142,11 @@ export const AdminLunchDutyManager: React.FC<AdminLunchDutyManagerProps> = ({ on
         setSelectedMonth(parsedRecord.month);
       }
 
-      // Save to server & Firestore
       await saveLunchDutyMonth(parsedRecord);
       setRecord(parsedRecord);
-
-      const msg = `${parsedRecord.year}년 ${parsedRecord.month}월 급식감독 명단(총 ${parsedRecord.duties.length}일)이 성공적으로 업로드 및 저장되었습니다!`;
-      if (onMessage) onMessage(msg);
-      window.alert(msg);
+      const msg = `${parsedRecord.year}년 ${parsedRecord.month}월 급식감독 명단(총 ${parsedRecord.duties.length}일)이 성공적으로 저장되었습니다!`;
+      onMessage?.(msg);
+      alert(msg);
     } catch (err) {
       console.error('File upload failed:', err);
       const errMsg = err instanceof Error ? err.message : '급식감독 파일 업로드 중 오류가 발생했습니다.';
@@ -740,9 +738,9 @@ export const AdminLunchDutyManager: React.FC<AdminLunchDutyManagerProps> = ({ on
                 );
               })
             )}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
   );
 };

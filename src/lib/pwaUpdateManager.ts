@@ -1,11 +1,12 @@
 /**
  * PWA Service Worker Update Detection & Management
  * 
- * Detects new service worker deployments and provides:
- * 1. Reactive state for UI prompts ("새로운 업데이트가 있습니다. 새로고침")
- * 2. Background periodic checks (every 15 min & tab focus)
- * 3. Manual update trigger
- * 4. Graceful cache update & reload
+ * 5-Layer Infinite Loop Defense System:
+ * 1. sessionStorage guard ('pwa_update_recently' - 15s suppression)
+ * 2. Direct SKIP_WAITING broadcast & button progress locking (Loader2)
+ * 3. URL test parameter auto-cleanup (?test_update=1 removal via history.replaceState)
+ * 4. controllerchange duplicate reload lock (hasReloaded)
+ * 5. Workbox cleanupOutdatedCaches & clientsClaim
  */
 
 import { registerSW } from 'virtual:pwa-register';
@@ -19,6 +20,94 @@ export interface PWAUpdateState {
 }
 
 type UpdateListener = (state: PWAUpdateState) => void;
+
+const RECENT_UPDATE_GUARD_KEY = 'pwa_update_recently';
+const GUARD_DURATION_MS = 15000; // 15 seconds
+
+/**
+ * Defense 1: Check if page was refreshed for an update within the last 15 seconds
+ */
+export function isRecentlyUpdated(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const stored = sessionStorage.getItem(RECENT_UPDATE_GUARD_KEY);
+    if (!stored) return false;
+    const timestamp = parseInt(stored, 10);
+    if (isNaN(timestamp)) return false;
+    return Date.now() - timestamp < GUARD_DURATION_MS;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Defense 1: Record update timestamp in sessionStorage to suppress re-prompting for 15s
+ */
+export function markRecentlyUpdated(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(RECENT_UPDATE_GUARD_KEY, Date.now().toString());
+  } catch (e) {
+    console.warn('[PWA] Failed to record recent update timestamp:', e);
+  }
+}
+
+/**
+ * Defense 3: Automatically remove test query parameters like ?test_update=1
+ */
+export function cleanTestUrlParams(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const url = new URL(window.location.href);
+    let changed = false;
+    if (url.searchParams.has('test_update')) {
+      url.searchParams.delete('test_update');
+      changed = true;
+    }
+    if (url.searchParams.has('test_pwa_update')) {
+      url.searchParams.delete('test_pwa_update');
+      changed = true;
+    }
+    if (changed) {
+      const cleanPath = url.pathname + (url.search ? url.search : '') + url.hash;
+      window.history.replaceState({}, document.title, cleanPath || '/');
+    }
+  } catch (e) {
+    console.warn('[PWA] Failed to clean test params:', e);
+  }
+}
+
+/**
+ * Defense 2: Direct SKIP_WAITING broadcast to all registered Service Workers
+ */
+export async function broadcastSkipWaitingToAllWorkers(): Promise<void> {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+    return;
+  }
+  try {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    for (const reg of registrations) {
+      if (reg.waiting) {
+        console.log('[PWA] Explicitly sending SKIP_WAITING to waiting worker');
+        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      }
+    }
+  } catch (e) {
+    console.warn('[PWA] Failed to broadcast SKIP_WAITING:', e);
+  }
+}
+
+// Defense 4: Duplicate event reload lock
+let hasReloaded = false;
+
+export function triggerSafeReload(): void {
+  if (hasReloaded) return;
+  hasReloaded = true;
+  if (typeof window !== 'undefined') {
+    cleanTestUrlParams();
+    window.location.reload();
+  }
+}
 
 let updateSWFn: ((reloadPage?: boolean) => Promise<void>) | null = null;
 let currentRegistration: ServiceWorkerRegistration | null = null;
@@ -43,7 +132,7 @@ function notify() {
 }
 
 /**
- * Initializes Service Worker registration and update detection
+ * Initializes Service Worker registration and update detection with 5-layer defenses
  */
 export function initPWAUpdateManager() {
   if (typeof window === 'undefined') return;
@@ -53,6 +142,10 @@ export function initPWAUpdateManager() {
     updateSWFn = registerSW({
       immediate: true,
       onNeedRefresh() {
+        if (isRecentlyUpdated()) {
+          console.log('[PWA] onNeedRefresh suppressed by 15s recent update guard');
+          return;
+        }
         console.log('[PWA] New version detected (onNeedRefresh)');
         state.needRefresh = true;
         notify();
@@ -69,9 +162,13 @@ export function initPWAUpdateManager() {
 
         // Check if there is already a waiting service worker
         if (registration.waiting) {
-          console.log('[PWA] Service worker already waiting');
-          state.needRefresh = true;
-          notify();
+          if (isRecentlyUpdated()) {
+            console.log('[PWA] Waiting worker suppressed by 15s recent update guard');
+          } else {
+            console.log('[PWA] Service worker already waiting');
+            state.needRefresh = true;
+            notify();
+          }
         }
 
         // Listen for new updates found
@@ -82,10 +179,13 @@ export function initPWAUpdateManager() {
           installingWorker.addEventListener('statechange', () => {
             if (installingWorker.state === 'installed') {
               if (navigator.serviceWorker.controller) {
-                // New content is available once current controller is superseded
-                console.log('[PWA] New content available from installing worker');
-                state.needRefresh = true;
-                notify();
+                if (isRecentlyUpdated()) {
+                  console.log('[PWA] Installing worker installed, suppressed by 15s guard');
+                } else {
+                  console.log('[PWA] New content available from installing worker');
+                  state.needRefresh = true;
+                  notify();
+                }
               }
             }
           });
@@ -93,7 +193,9 @@ export function initPWAUpdateManager() {
 
         // Periodic background update check every 15 minutes
         setInterval(() => {
-          checkForPWAUpdate().catch(() => {});
+          if (!isRecentlyUpdated()) {
+            checkForPWAUpdate().catch(() => {});
+          }
         }, 15 * 60 * 1000);
       },
       onRegisterError(error) {
@@ -107,26 +209,34 @@ export function initPWAUpdateManager() {
   // 2. Window focus & visibility change listener to check for latest deployment
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && !isRecentlyUpdated()) {
         checkForPWAUpdate().catch(() => {});
       }
     });
 
     window.addEventListener('focus', () => {
-      checkForPWAUpdate().catch(() => {});
-    });
-  }
-
-  // 3. Listen to controllerchange event to reload smoothly when new SW takes control
-  if ('serviceWorker' in navigator) {
-    let refreshing = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!refreshing) {
-        refreshing = true;
-        window.location.reload();
+      if (!isRecentlyUpdated()) {
+        checkForPWAUpdate().catch(() => {});
       }
     });
   }
+
+  // 3. Defense 4: Controller change event listener with hasReloaded lock
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      console.log('[PWA] controllerchange triggered, initiating safe reload');
+      triggerSafeReload();
+    });
+  }
+
+  // Support ?test_update=1 in URL if present and not recently updated
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('test_update') === '1' && !isRecentlyUpdated()) {
+      state.needRefresh = true;
+      notify();
+    }
+  } catch {}
 }
 
 /**
@@ -134,6 +244,11 @@ export function initPWAUpdateManager() {
  */
 export async function checkForPWAUpdate(): Promise<boolean> {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+    return false;
+  }
+
+  if (isRecentlyUpdated()) {
+    console.log('[PWA] Manual update check suppressed by 15s recent update guard');
     return false;
   }
 
@@ -152,9 +267,11 @@ export async function checkForPWAUpdate(): Promise<boolean> {
       state.lastCheckedAt = new Date();
 
       if (reg.waiting) {
-        state.needRefresh = true;
-        notify();
-        return true;
+        if (!isRecentlyUpdated()) {
+          state.needRefresh = true;
+          notify();
+          return true;
+        }
       }
     }
     return state.needRefresh;
@@ -169,33 +286,38 @@ export async function checkForPWAUpdate(): Promise<boolean> {
 
 /**
  * Apply the update and reload the page to activate the latest app version
+ * Implements Defenses 1, 2, 3, and 4
  */
 export async function applyPWAUpdate() {
+  // Defense 1: Set 15s session storage guard
+  markRecentlyUpdated();
+
+  // Defense 3: Clean test params from URL
+  cleanTestUrlParams();
+
+  // Defense 2: Update internal state & clear needRefresh
   state.isUpdating = true;
+  state.needRefresh = false;
   notify();
 
   try {
-    // 1. If updateSWFn is available, invoke it
+    // Defense 2: Broadcast SKIP_WAITING to all SW registrations
+    await broadcastSkipWaitingToAllWorkers();
+
+    // If updateSWFn is available, invoke it
     if (updateSWFn) {
       await updateSWFn(true);
-      return;
+    } else if (currentRegistration?.waiting) {
+      currentRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
     }
 
-    // 2. Fallback: tell waiting service worker to skipWaiting
-    if (currentRegistration?.waiting) {
-      currentRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
-    } else {
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (reg?.waiting) {
-        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-      } else {
-        // Direct hard reload
-        window.location.reload();
-      }
-    }
+    // Safety fallback: if controllerchange doesn't trigger reload within 1.2s, reload safely
+    setTimeout(() => {
+      triggerSafeReload();
+    }, 1200);
   } catch (err) {
-    console.error('[PWA] Failed to apply update, forcing page reload:', err);
-    window.location.reload();
+    console.error('[PWA] Failed to apply update, forcing safe reload:', err);
+    triggerSafeReload();
   }
 }
 
@@ -211,6 +333,12 @@ export function dismissPWAUpdatePrompt() {
  * Force simulate an update prompt (useful for testing & admin preview)
  */
 export function simulatePWAUpdateForTest() {
+  // Clear any recent update guard so testing immediately works
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.removeItem(RECENT_UPDATE_GUARD_KEY);
+    } catch {}
+  }
   state.needRefresh = true;
   notify();
 }
