@@ -358,11 +358,11 @@ export const TodayLunchDuty: React.FC<TodayLunchDutyProps> = ({
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${role.colorBadge}`}>
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${role.colorBadge}`}>
                         {role.title}
                       </span>
                       {matchedTeacher && onSelectTeacher && (
-                        <span className="text-[11px] font-semibold text-gray-400 group-hover:text-orange-700 flex items-center gap-0.5 transition">
+                        <span className="text-[11px] font-semibold text-gray-400 group-hover:text-orange-700 flex items-center gap-0.5 transition shrink-0">
                           시간표
                           <ExternalLink className="w-3 h-3" />
                         </span>
@@ -370,21 +370,21 @@ export const TodayLunchDuty: React.FC<TodayLunchDutyProps> = ({
                     </div>
 
                     <div className="flex items-center gap-3">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm ${role.avatarBg}`}>
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 ${role.avatarBg}`}>
                         {role.teacherName ? role.teacherName[0] : '?'}
                       </div>
 
                       <div className="min-w-0 flex-1">
                         {role.teacherName ? (
                           <div>
-                            <div className="flex items-center gap-1">
-                              <p className="text-base font-bold text-gray-900 leading-snug truncate group-hover:text-orange-700 transition">
+                            <div className="flex items-baseline gap-1.5 flex-wrap">
+                              <span className="text-base font-bold text-gray-900 leading-snug group-hover:text-orange-700 transition whitespace-nowrap">
                                 {role.teacherName}
-                              </p>
-                              <span className="text-xs text-gray-500 font-normal">선생님</span>
+                              </span>
+                              <span className="text-xs text-gray-500 font-normal shrink-0">선생님</span>
                             </div>
                             {matchedTeacher?.homeroom && (
-                              <p className="text-[11px] text-gray-500 font-medium leading-tight">
+                              <p className="text-[11px] text-gray-500 font-medium leading-tight mt-0.5 whitespace-nowrap">
                                 {matchedTeacher.homeroom}반 담임
                               </p>
                             )}
