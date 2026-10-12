@@ -377,15 +377,12 @@ export const TodayLunchDuty: React.FC<TodayLunchDutyProps> = ({
                       <div className="min-w-0 flex-1">
                         {role.teacherName ? (
                           <div>
-                            <div className="flex items-baseline gap-1.5 flex-wrap">
-                              <span className="text-base font-bold text-gray-900 leading-snug group-hover:text-orange-700 transition whitespace-nowrap">
-                                {role.teacherName}
-                              </span>
-                              <span className="text-xs text-gray-500 font-normal shrink-0">선생님</span>
-                            </div>
+                            <p className="text-base font-bold text-gray-900 leading-snug group-hover:text-orange-700 transition whitespace-nowrap">
+                              {role.teacherName}
+                            </p>
                             {matchedTeacher?.homeroom && (
                               <p className="text-[11px] text-gray-500 font-medium leading-tight mt-0.5 whitespace-nowrap">
-                                {matchedTeacher.homeroom}반 담임
+                                {matchedTeacher.homeroom.endsWith('반') ? matchedTeacher.homeroom : `${matchedTeacher.homeroom}반`} 담임
                               </p>
                             )}
                           </div>
@@ -421,7 +418,7 @@ export const TodayLunchDuty: React.FC<TodayLunchDutyProps> = ({
             {nextUpcomingDuty ? (
               <p className="text-xs text-orange-600 font-medium">
                 다음 예정일: {nextUpcomingDuty.month}월 {nextUpcomingDuty.day}일({nextUpcomingDuty.dayOfWeek}) —{' '}
-                {nextUpcomingDuty.generalTeacher && `총괄: ${nextUpcomingDuty.generalTeacher} 선생님`}
+                {nextUpcomingDuty.generalTeacher && `총괄: ${nextUpcomingDuty.generalTeacher}`}
               </p>
             ) : (
               <p className="text-xs text-gray-500">
