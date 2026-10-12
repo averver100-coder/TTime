@@ -259,7 +259,7 @@ export const TodayLunchDuty: React.FC<TodayLunchDutyProps> = ({
                 )}
               </div>
               <p className="text-xs text-orange-600/90 mt-0.5 truncate">
-                점심시간 학생 급식 지도 및 식당 질서 유지 (12:20 ~ 13:20)
+                점심시간 학생 급식 지도(12:20 ~ 13:20)
               </p>
             </div>
           </div>
