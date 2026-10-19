@@ -4,7 +4,7 @@ import {
   Upload, Trash2, ArrowLeft, Eye, EyeOff, KeyRound, UserPlus, Edit3, X, Check, 
   User, Crown, Shield, LogOut, Search, Download, RotateCcw, ShieldCheck, History, 
   FileDown, FileSpreadsheet, GraduationCap, CalendarDays, Users, Save, CheckCircle, Bell, BellOff,
-  Mail, ArrowRight, AlertCircle, UserCheck, Smartphone, Globe, ExternalLink, RefreshCw
+  Mail, ArrowRight, AlertCircle, UserCheck, Smartphone, Globe, ExternalLink, RefreshCw, Copy
 } from 'lucide-react';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { PWAInstallButton } from '../components/PWAInstallButton';
@@ -21,7 +21,7 @@ import { usePushPopupConfig, updatePushPopupConfig } from '../lib/pushConfigStor
 import { Teacher, ClassTimetable, DayOfWeek, dayNames, periods, KOREAN_CONSONANTS, getChosung, matchKorean, formatClassTitle, matchClassCode, getClassMatchScore, getDayFromIndex } from '../lib/timetableUtils';
 import { 
   fetchTeachers, saveSingleTeacher, deleteSingleTeacher, resetAndUploadTeachers, 
-  updateAdminPassword, fetchBackups, createManualBackup, 
+  fetchBackups, createManualBackup, 
   restoreBackup, BackupItem, fetchClassTimetables, saveClassTimetable, 
   resetAndUploadClassTimetables, getDefaultClassTimetables 
 } from '../lib/store';
@@ -40,7 +40,8 @@ import {
   clearAdminSession, 
   logAuditEvent, 
   isSuperAdminUser,
-  DEFAULT_SUPERADMIN_EMAIL 
+  DEFAULT_SUPERADMIN_EMAIL,
+  CURRENT_ADMIN_STORAGE_KEY
 } from '../lib/authWhitelist';
 import { 
   restoreSharedSSOSession, 
@@ -48,7 +49,8 @@ import {
   listenToSSOBroadcast, 
   getSisterSubdomainSSOLink, 
   SISTER_SUBDOMAINS,
-  SUPERADMIN_EMAIL 
+  SUPERADMIN_EMAIL,
+  buildSuperAdminUser
 } from '../lib/ssoAuth';
 import { usePWAUpdate, simulatePWAUpdateForTest } from '../lib/pwaUpdateManager';
 import { auth } from '../lib/firebase';
@@ -76,11 +78,8 @@ export const Admin: React.FC = () => {
   const inAppInfo = useMemo(() => detectInAppBrowser(), []);
 
   // Navigation tab
-  const [adminTab, setAdminTab] = useState<'classes' | 'teachers' | 'duties' | 'alerts' | 'audit' | 'whitelist' | 'settings'>('classes');
+  const [adminTab, setAdminTab] = useState<'classes' | 'teachers' | 'duties' | 'alerts' | 'audit' | 'whitelist'>('classes');
 
-  const [targetAccount, setTargetAccount] = useState<'averver' | 'sangsang'>('averver');
-  const [newPassword, setNewPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
   const { checkForUpdate, isChecking: isCheckingUpdate } = usePWAUpdate();
   const [updateCheckToast, setUpdateCheckToast] = useState<string | null>(null);
@@ -88,6 +87,48 @@ export const Admin: React.FC = () => {
   // Push popup preview and configuration
   const [isPreviewPushPopupOpen, setIsPreviewPushPopupOpen] = useState(false);
   const { showPushPopup, loading: isPushPopupConfigLoading } = usePushPopupConfig();
+
+  // Emergency / Dev bypass login state
+  const [showEmergencyLogin, setShowEmergencyLogin] = useState(false);
+  const [emergencyPw, setEmergencyPw] = useState('');
+  const [emergencyError, setEmergencyError] = useState('');
+  const [copiedDomain, setCopiedDomain] = useState(false);
+
+  const handleCopyCurrentDomain = () => {
+    if (typeof window !== 'undefined') {
+      navigator.clipboard.writeText(window.location.hostname);
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2500);
+    }
+  };
+
+  const handleEmergencyLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (emergencyPw.trim() !== 'nyng5929!') {
+      setEmergencyError('비상 마스터 비밀번호가 올바르지 않습니다.');
+      return;
+    }
+    const superUser = buildSuperAdminUser('비상 마스터 인증');
+    setCurrentUser(superUser);
+    setIsAuthenticated(true);
+    saveSharedSSOSession(superUser);
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem(CURRENT_ADMIN_STORAGE_KEY, JSON.stringify(superUser));
+        localStorage.setItem(CURRENT_ADMIN_STORAGE_KEY, JSON.stringify(superUser));
+      } catch {}
+    }
+    await logAuditEvent({
+      operatorId: superUser.email,
+      operatorName: superUser.name,
+      action: '비상 마스터 로그인',
+      target: superUser.email,
+      summary: '도메인 미승인 또는 개발 테스트 환경에서 최고관리자 비상 로그인 수행',
+      category: 'auth'
+    }).catch(() => {});
+    setMessage('');
+    setEmergencyPw('');
+  };
 
   const handleAdminCheckUpdate = async () => {
     const hasUpdate = await checkForUpdate();
@@ -119,11 +160,6 @@ export const Admin: React.FC = () => {
       if (saved && isMounted) {
         setCurrentUser(saved);
         setIsAuthenticated(true);
-        if (saved.role === 'superadmin') {
-          setTargetAccount('averver');
-        } else {
-          setTargetAccount('sangsang');
-        }
       }
 
       // Check ONLY if user explicitly triggered a Google OAuth redirect flow
@@ -148,11 +184,6 @@ export const Admin: React.FC = () => {
               setCurrentUser(res.user);
               setIsAuthenticated(true);
               setMessage('');
-              if (res.user.role === 'superadmin') {
-                setTargetAccount('averver');
-              } else {
-                setTargetAccount('sangsang');
-              }
             } else if (res.error) {
               setMessage(res.error);
             }
@@ -177,7 +208,6 @@ export const Admin: React.FC = () => {
         if (!isMounted) return;
         setCurrentUser(ssoUser);
         setIsAuthenticated(true);
-        if (ssoUser.role === 'superadmin') setTargetAccount('averver');
       },
       () => {
         if (!isMounted) return;
@@ -219,7 +249,6 @@ export const Admin: React.FC = () => {
           };
           setCurrentUser(superUser);
           setIsAuthenticated(true);
-          setTargetAccount('averver');
           saveSharedSSOSession(superUser);
           return;
         }
@@ -233,11 +262,6 @@ export const Admin: React.FC = () => {
               setCurrentUser(res.user);
               setIsAuthenticated(true);
               setMessage('');
-              if (res.user.role === 'superadmin') {
-                setTargetAccount('averver');
-              } else {
-                setTargetAccount('sangsang');
-              }
             } else if (res.error && isMounted) {
               setMessage(res.error);
             }
@@ -381,11 +405,6 @@ export const Admin: React.FC = () => {
         setCurrentUser(res.user);
         setIsAuthenticated(true);
         setMessage('');
-        if (res.user.role === 'superadmin') {
-          setTargetAccount('averver');
-        } else {
-          setTargetAccount('sangsang');
-        }
       } else if (res.error) {
         clearTimeout(watchdogTimer);
         setMessage(res.error);
@@ -408,26 +427,6 @@ export const Admin: React.FC = () => {
     setCurrentUser(null);
     setGoogleEmail('');
     setMessage('');
-  };
-
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newPassword.length < 4) {
-      setMessage('새 비밀번호는 최소 4자리 이상이어야 합니다.');
-      return;
-    }
-    setLoading(true);
-    try {
-      const accountToUpdate = currentUser?.role === 'superadmin' ? targetAccount : 'sangsang';
-      await updateAdminPassword(newPassword, accountToUpdate);
-      const label = accountToUpdate === 'averver' ? '슈퍼어드민(averver)' : '일반 관리자(sangsang)';
-      setMessage(`${label} 계정의 비밀번호가 성공적으로 변경되었습니다.`);
-      setNewPassword('');
-    } catch (err) {
-      setMessage('비밀번호 변경 중 오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -893,9 +892,30 @@ export const Admin: React.FC = () => {
 
             {/* Error Message */}
             {message && (
-              <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 leading-relaxed flex items-start gap-2.5 animate-in fade-in">
-                <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-                <span className="font-medium break-all">{message}</span>
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 leading-relaxed space-y-2 animate-in fade-in">
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span className="font-medium break-all">{message}</span>
+                </div>
+                {message.includes('unauthorized-domain') && (
+                  <div className="pt-2 border-t border-amber-200/70 flex items-center justify-between flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleCopyCurrentDomain}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-bold transition cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>{copiedDomain ? '도메인 복사 완료!' : '현재 도메인 복사하기'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowEmergencyLogin(true)}
+                      className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+                    >
+                      비상 로그인 열기
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -936,6 +956,58 @@ export const Admin: React.FC = () => {
                 <Smartphone className="w-3.5 h-3.5 text-gray-500" />
                 <span>📱 팝업 차단 환경일 경우: 전체화면 리다이렉트 로그인</span>
               </button>
+
+              {/* Emergency / Dev Master Login */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowEmergencyLogin(!showEmergencyLogin)}
+                  className="w-full py-2 px-3 bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-900 border border-gray-200 rounded-xl text-xs font-semibold flex items-center justify-between transition cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <KeyRound className="w-3.5 h-3.5 text-gray-500" />
+                    <span>개발·비상 마스터 로그인 (averver)</span>
+                  </span>
+                  <span className="text-[10px] text-gray-400">
+                    {showEmergencyLogin ? '닫기 ▲' : '열기 ▼'}
+                  </span>
+                </button>
+
+                {showEmergencyLogin && (
+                  <form onSubmit={handleEmergencyLogin} className="mt-2 p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2.5 animate-in fade-in">
+                    <div className="text-xs text-amber-900">
+                      <p className="font-bold">🔑 최고관리자(averver100@gmail.com) 비상 접속</p>
+                      <p className="text-[11px] text-amber-700 mt-0.5">
+                        도메인 승인 지연 시 마스터 비밀번호로 즉시 로그인하여 테스트할 수 있습니다.
+                      </p>
+                    </div>
+                    <div>
+                      <input
+                        type="password"
+                        value={emergencyPw}
+                        onChange={(e) => {
+                          setEmergencyPw(e.target.value);
+                          setEmergencyError('');
+                        }}
+                        placeholder="마스터 비밀번호 입력"
+                        className="w-full px-3 py-2 text-xs bg-white border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        autoFocus
+                      />
+                      {emergencyError && (
+                        <p className="text-[11px] text-red-600 font-bold mt-1">{emergencyError}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="submit"
+                        className="flex-1 py-2 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition shadow-2xs cursor-pointer active:scale-95"
+                      >
+                        최고관리자로 즉시 접속
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
 
               {/* PWA App Install Section on Login Main Screen */}
               <div className="pt-3.5 border-t border-gray-100 flex items-center justify-between">
@@ -1214,19 +1286,6 @@ export const Admin: React.FC = () => {
               <span>Google 승인 계정 관리</span>
             </button>
           )}
-
-          <button
-            type="button"
-            onClick={() => setAdminTab('settings')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
-              adminTab === 'settings'
-                ? 'bg-white text-gray-800 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
-            }`}
-          >
-            <KeyRound className="w-4 h-4 text-gray-600" />
-            <span>계정 및 보안 설정</span>
-          </button>
         </div>
 
         {message && (
@@ -1801,122 +1860,40 @@ export const Admin: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 5: 계정 및 보안 설정 & 환경설정 */}
-      {adminTab === 'settings' && (
+      {/* TAB: 변경 이력 및 감사 로그 (Audit Log) & 데이터 초기화 위험 구역 */}
+      {adminTab === 'audit' && (
         <div className="space-y-6">
-          <AdminPushPopupControl 
-            currentUserEmail={currentUser?.email || currentUser?.id}
-            onMessage={(msg) => setMessage(msg)}
-            onPreviewPopup={() => setIsPreviewPushPopupOpen(true)}
-          />
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-8">
-          <section>
-            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <AdminAuditLogViewer onMessage={(msg) => setMessage(msg)} />
+
+          {/* Danger Zone: 시간표 데이터 초기화 */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-red-100 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 bg-red-50 text-red-600 rounded-xl ring-1 ring-red-200">
+                <Trash2 className="w-5 h-5" />
+              </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                  <KeyRound className="w-5 h-5 text-gray-700" />
-                  관리자 계정 및 비밀번호 설정
+                <h2 className="text-base sm:text-lg font-bold text-red-600 flex items-center gap-1.5">
+                  위험 구역: 시간표 데이터 전체 초기화
                 </h2>
-                <p className="text-xs text-gray-500">
-                  {currentUser?.role === 'superadmin' 
-                    ? '슈퍼어드민 및 일반 관리자 계정의 비밀번호를 설정할 수 있습니다.' 
-                    : '관리자 계정 비밀번호를 변경할 수 있습니다.'}
+                <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                  모든 선생님의 시간표 데이터를 완전히 삭제합니다. 새 학기 시작 시에만 신중하게 사용하세요.
                 </p>
               </div>
             </div>
 
-            {currentUser?.role === 'superadmin' && (
-              <div className="mb-4 bg-gray-50 p-3.5 rounded-xl border border-gray-200 max-w-md">
-                <label className="block text-xs font-bold text-gray-700 mb-2">비밀번호를 변경할 대상 계정 선택:</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setTargetAccount('averver')}
-                    className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 border transition cursor-pointer ${
-                      targetAccount === 'averver'
-                        ? 'bg-amber-50 border-amber-400 text-amber-900 shadow-2xs ring-1 ring-amber-400'
-                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    <Crown className="w-3.5 h-3.5 text-amber-600" />
-                    슈퍼어드민 (averver)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTargetAccount('sangsang')}
-                    className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 border transition cursor-pointer ${
-                      targetAccount === 'sangsang'
-                        ? 'bg-blue-50 border-blue-400 text-blue-900 shadow-2xs ring-1 ring-blue-400'
-                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    <Shield className="w-3.5 h-3.5 text-blue-600" />
-                    일반 관리자 (sangsang)
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <form onSubmit={handleChangePassword} className="space-y-4 max-w-sm">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {currentUser?.role === 'superadmin'
-                    ? `[${targetAccount === 'averver' ? '슈퍼어드민(averver)' : '일반 관리자(sangsang)'}] 새 비밀번호`
-                    : '새 비밀번호'}
-                </label>
-                <div className="relative">
-                  <input
-                    type={showNewPassword ? "text" : "password"}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition pr-10"
-                    placeholder="최소 4자리 이상"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowNewPassword(!showNewPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer"
-                  >
-                    {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </button>
-                </div>
-              </div>
+            <div className="pt-2 flex items-center gap-3">
               <button
-                type="submit"
-                disabled={loading || newPassword.length < 4}
-                className="flex items-center justify-center gap-2 w-full bg-gray-800 text-white font-medium py-2 rounded-lg hover:bg-gray-900 transition disabled:opacity-50 cursor-pointer"
+                type="button"
+                onClick={handleResetClick}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer disabled:opacity-50 active:scale-95"
               >
-                <KeyRound className="w-4 h-4" />
-                비밀번호 변경 저장
+                <Trash2 className="w-4 h-4" />
+                <span>선생님 시간표 데이터 전체 초기화</span>
               </button>
-            </form>
-          </section>
-
-          <hr className="border-gray-100" />
-
-          {/* Danger Zone */}
-          <section>
-            <h2 className="text-lg font-semibold mb-4 text-red-600">위험 구역</h2>
-            <p className="text-sm text-gray-600 mb-4">
-              모든 선생님의 시간표 데이터를 완전히 삭제합니다. 새 학기 시작 시에만 사용하세요.
-            </p>
-            <button
-              onClick={handleResetClick}
-              disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 font-medium rounded-lg hover:bg-red-100 transition cursor-pointer"
-            >
-              <Trash2 className="w-4 h-4" />
-              데이터 초기화
-            </button>
-          </section>
+            </div>
+          </div>
         </div>
-      </div>
-    )}
-
-      {/* TAB: 변경 이력 및 감사 로그 (Audit Log) */}
-      {adminTab === 'audit' && (
-        <AdminAuditLogViewer onMessage={(msg) => setMessage(msg)} />
       )}
 
       {/* TAB: Google 로그인 승인 계정 관리 (화이트리스트) - 최고관리자(averver100@gmail.com) 전용 */}
