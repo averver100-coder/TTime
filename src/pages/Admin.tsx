@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Upload, Trash2, ArrowLeft, Eye, EyeOff, KeyRound, UserPlus, Edit3, X, Check, 
   User, Crown, Shield, LogOut, Search, Download, RotateCcw, ShieldCheck, History, 
-  FileDown, FileSpreadsheet, GraduationCap, CalendarDays, Users, Save, CheckCircle, Bell,
+  FileDown, FileSpreadsheet, GraduationCap, CalendarDays, Users, Save, CheckCircle, Bell, BellOff,
   Mail, ArrowRight, AlertCircle, UserCheck, Smartphone, Globe, ExternalLink, RefreshCw
 } from 'lucide-react';
 import { SchoolLogo } from '../components/SchoolLogo';
@@ -14,7 +14,10 @@ import { AdminMealManager } from '../components/AdminMealManager';
 import { AdminScheduleAlertSender } from '../components/AdminScheduleAlertSender';
 import { AdminAuditLogViewer } from '../components/AdminAuditLogViewer';
 import { AdminWhitelistManager } from '../components/AdminWhitelistManager';
+import { AdminPushPopupControl } from '../components/AdminPushPopupControl';
+import { TodayScheduleNotificationToast } from '../components/TodayScheduleNotificationToast';
 import { Footer } from '../components/Footer';
+import { usePushPopupConfig, updatePushPopupConfig } from '../lib/pushConfigStore';
 import { Teacher, ClassTimetable, DayOfWeek, dayNames, periods, KOREAN_CONSONANTS, getChosung, matchKorean, formatClassTitle, matchClassCode, getClassMatchScore, getDayFromIndex } from '../lib/timetableUtils';
 import { 
   fetchTeachers, saveSingleTeacher, deleteSingleTeacher, resetAndUploadTeachers, 
@@ -81,6 +84,10 @@ export const Admin: React.FC = () => {
   const [showResetModal, setShowResetModal] = useState(false);
   const { checkForUpdate, isChecking: isCheckingUpdate } = usePWAUpdate();
   const [updateCheckToast, setUpdateCheckToast] = useState<string | null>(null);
+
+  // Push popup preview and configuration
+  const [isPreviewPushPopupOpen, setIsPreviewPushPopupOpen] = useState(false);
+  const { showPushPopup, loading: isPushPopupConfigLoading } = usePushPopupConfig();
 
   const handleAdminCheckUpdate = async () => {
     const hasUpdate = await checkForUpdate();
@@ -1013,6 +1020,32 @@ export const Admin: React.FC = () => {
               <span>{isCheckingUpdate ? '확인 중...' : updateCheckToast || '업데이트 확인'}</span>
             </button>
 
+            {/* Quick Push Popup Control in Admin Header */}
+            <div className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-2xs">
+              <span className="text-gray-600 hidden sm:inline">푸시창:</span>
+              <select
+                value={showPushPopup ? 'enabled' : 'disabled'}
+                disabled={isPushPopupConfigLoading}
+                onChange={(e) => {
+                  const newVal = e.target.value === 'enabled';
+                  updatePushPopupConfig(newVal, currentUser?.email || currentUser?.id);
+                  setMessage(newVal 
+                    ? '🔔 푸시 팝업창이 [켜기]로 변경되었습니다.' 
+                    : '🔕 푸시 팝업창이 [끄기]로 변경되었습니다.'
+                  );
+                }}
+                className={`font-bold rounded text-xs px-2 py-0.5 border cursor-pointer ${
+                  showPushPopup 
+                    ? 'text-emerald-800 bg-emerald-50 border-emerald-300' 
+                    : 'text-rose-800 bg-rose-50 border-rose-300'
+                }`}
+                title="메인 화면 푸시 팝업창 켜기/끄기 선택 상자"
+              >
+                <option value="enabled">🔔 푸시창 켜기</option>
+                <option value="disabled">🔕 푸시창 끄기</option>
+              </select>
+            </div>
+
             {currentUser?.role === 'superadmin' && (
               <button
                 type="button"
@@ -1143,9 +1176,13 @@ export const Admin: React.FC = () => {
             }`}
           >
             <Bell className="w-4 h-4 text-rose-600" />
-            <span>수업변경·공강 알림 발송</span>
-            <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded border border-amber-200">
-              준비중
+            <span>푸시 팝업 설정 및 수업변경 알림</span>
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
+              showPushPopup 
+                ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
+                : 'bg-rose-100 text-rose-800 border-rose-300'
+            }`}>
+              {showPushPopup ? '푸시창 켜짐' : '푸시창 꺼짐'}
             </span>
           </button>
 
@@ -1752,16 +1789,27 @@ export const Admin: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 4: 수업 변경 및 공강 즉시 푸시 알림 발송 */}
+      {/* TAB 4: 수업 변경 및 공강 즉시 푸시 알림 발송 & 메인 화면 푸시 팝업창 제어 */}
       {adminTab === 'alerts' && (
         <div className="space-y-6">
+          <AdminPushPopupControl 
+            currentUserEmail={currentUser?.email || currentUser?.id}
+            onMessage={(msg) => setMessage(msg)}
+            onPreviewPopup={() => setIsPreviewPushPopupOpen(true)}
+          />
           <AdminScheduleAlertSender teachers={teachers} onMessage={(msg) => setMessage(msg.text)} />
         </div>
       )}
 
-      {/* TAB 5: 계정 및 보안 설정 */}
+      {/* TAB 5: 계정 및 보안 설정 & 환경설정 */}
       {adminTab === 'settings' && (
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-8">
+        <div className="space-y-6">
+          <AdminPushPopupControl 
+            currentUserEmail={currentUser?.email || currentUser?.id}
+            onMessage={(msg) => setMessage(msg)}
+            onPreviewPopup={() => setIsPreviewPushPopupOpen(true)}
+          />
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-8">
           <section>
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <div>
@@ -1863,7 +1911,8 @@ export const Admin: React.FC = () => {
             </button>
           </section>
         </div>
-      )}
+      </div>
+    )}
 
       {/* TAB: 변경 이력 및 감사 로그 (Audit Log) */}
       {adminTab === 'audit' && (
@@ -2276,6 +2325,18 @@ export const Admin: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Push Notification Popup Preview Modal (for admin testing) */}
+      <TodayScheduleNotificationToast
+        teachers={teachers}
+        classes={classes}
+        bookmarks={[]}
+        currentTime={new Date()}
+        isOpen={isPreviewPushPopupOpen}
+        onClose={() => setIsPreviewPushPopupOpen(false)}
+        onSelectTeacher={() => {}}
+        onSelectClass={() => {}}
+      />
 
       {/* Subtle Copyright Notice */}
       <Footer />

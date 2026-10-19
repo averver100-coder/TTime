@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Search, 
-  Settings, 
   Clock, 
   CalendarDays, 
   X, 
@@ -34,6 +33,7 @@ import { TodayScheduleNotificationToast } from '../components/TodayScheduleNotif
 import { useBookmarks } from '../hooks/useBookmarks';
 import { exportElementAsPng } from '../lib/exportImage';
 import { fetchTeachers, getDefaultTeachers, fetchClassTimetables, getDefaultClassTimetables } from '../lib/store';
+import { usePushPopupConfig } from '../lib/pushConfigStore';
 import { getKSTDate } from '../lib/gateDutyStore';
 import { 
   Teacher, 
@@ -78,6 +78,9 @@ export const Home: React.FC = () => {
   const [isExportingTeacher, setIsExportingTeacher] = useState(false);
   const teacherCardRef = useRef<HTMLDivElement>(null);
 
+  // Admin-controlled push popup configuration
+  const { showPushPopup, loading: isPushConfigLoading } = usePushPopupConfig();
+
   const handleExportTeacherTimetable = async () => {
     if (!teacherCardRef.current || !selectedTeacher || isExportingTeacher) return;
     try {
@@ -94,8 +97,12 @@ export const Home: React.FC = () => {
     }
   };
 
-  // Auto show today's schedule notification on app startup
+  // Auto show today's schedule notification on app startup ONLY if enabled by admin
   useEffect(() => {
+    if (isPushConfigLoading) return;
+    // If admin disabled push popup, completely suppress automatic popup
+    if (!showPushPopup) return;
+
     const hasNotifiedThisSession = sessionStorage.getItem('ssamtime_today_startup_notified_v1');
     if (!hasNotifiedThisSession) {
       sessionStorage.setItem('ssamtime_today_startup_notified_v1', 'true');
@@ -104,7 +111,7 @@ export const Home: React.FC = () => {
       }, 700);
       return () => clearTimeout(timer);
     }
-  }, []);
+  }, [showPushPopup, isPushConfigLoading]);
 
   // Prime cross-subdomain SSO session on app launch (captures URL tokens or srider.kr cookies)
   useEffect(() => {
@@ -1105,13 +1112,6 @@ export const Home: React.FC = () => {
               </button>
             )}
             <PWAInstallButton />
-            <button 
-              onClick={() => navigate('/admin')}
-              className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition"
-              title="관리자 설정"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
           </div>
         </div>
       </header>
@@ -1139,25 +1139,27 @@ export const Home: React.FC = () => {
             </span>
           )}
 
-          <button
-            type="button"
-            onClick={() => setIsTodayNotificationOpen(true)}
-            className="inline-flex items-center gap-1 bg-blue-500/80 hover:bg-blue-700 text-white px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-blue-300/40 shadow-2xs transition active:scale-95 cursor-pointer"
-            title="오늘의 수업 시간표 알림 보기"
-          >
-            <Bell className="w-3 h-3 text-yellow-300" />
-            <span>오늘 시간표 알림</span>
-          </button>
+          {showPushPopup && (
+            <button
+              type="button"
+              onClick={() => setIsTodayNotificationOpen(true)}
+              className="inline-flex items-center gap-1 bg-blue-500/80 hover:bg-blue-700 text-white px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-blue-300/40 shadow-2xs transition active:scale-95 cursor-pointer"
+              title="오늘의 수업 시간표 알림 보기"
+            >
+              <Bell className="w-3 h-3 text-yellow-300" />
+              <span>오늘 시간표 알림</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Today's Schedule Notification Toast (Startup & On-demand) */}
+      {/* Today's Schedule Notification Toast (Startup & On-demand, controlled by admin) */}
       <TodayScheduleNotificationToast
         teachers={teachers}
         classes={classes}
         bookmarks={bookmarks}
         currentTime={currentTime}
-        isOpen={isTodayNotificationOpen}
+        isOpen={showPushPopup && isTodayNotificationOpen}
         onClose={() => setIsTodayNotificationOpen(false)}
         onSelectTeacher={handleSelectTeacherByName}
         onSelectClass={handleSelectClassByCode}
@@ -1533,15 +1535,17 @@ export const Home: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => setIsTodayNotificationOpen(true)}
-                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3.5 py-2 rounded-xl border border-indigo-200 transition shadow-2xs active:scale-95 cursor-pointer"
-                    title="오늘의 수업시간표 알림 팝업창 열기"
-                  >
-                    <Bell className="w-4 h-4 text-indigo-600" />
-                    <span>오늘 알림</span>
-                  </button>
+                  {showPushPopup && (
+                    <button
+                      type="button"
+                      onClick={() => setIsTodayNotificationOpen(true)}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3.5 py-2 rounded-xl border border-indigo-200 transition shadow-2xs active:scale-95 cursor-pointer"
+                      title="오늘의 수업시간표 알림 팝업창 열기"
+                    >
+                      <Bell className="w-4 h-4 text-indigo-600" />
+                      <span>오늘 알림</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={handleExportTeacherTimetable}
@@ -1660,7 +1664,7 @@ export const Home: React.FC = () => {
               bookmarks={bookmarks}
               onSelectTeacher={handleSelectTeacherByName}
               onSelectClass={handleSelectClassByCode}
-              onOpenTodayNotification={() => setIsTodayNotificationOpen(true)}
+              onOpenTodayNotification={showPushPopup ? () => setIsTodayNotificationOpen(true) : undefined}
               onRemoveBookmark={(type, id) => {
                 removeBookmark(type, id);
                 setToastMessage('⭐ 즐겨찾기가 해제되었습니다.');
@@ -1863,8 +1867,8 @@ export const Home: React.FC = () => {
       {/* Subtle Copyright Notice */}
       <Footer />
 
-      {/* Floating Quick Action Button to Reopen Today's Schedule Popup */}
-      {!isTodayNotificationOpen && (
+      {/* Floating Quick Action Button to Reopen Today's Schedule Popup (only when push popup is enabled by admin) */}
+      {showPushPopup && !isTodayNotificationOpen && (
         <button
           type="button"
           onClick={() => setIsTodayNotificationOpen(true)}
