@@ -1859,7 +1859,10 @@ export const Home: React.FC = () => {
             />
 
             {/* 오늘의 급식 코너 */}
-            <TodayMeal />
+            <TodayMeal 
+              selectedDate={dutyDate}
+              onDateChange={setDutyDate}
+            />
           </div>
         ) : null}
       </main>

@@ -2,6 +2,8 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { MealDay, MealMonthRecord } from '../types/meal';
 import defaultMealData from '../data/defaultMeals.json';
+import meals202611 from '../data/meals_2026-11.json';
+import meals202610 from '../data/meals_2026-10.json';
 import { getKSTDate } from './gateDutyStore';
 import * as XLSX from 'xlsx';
 
@@ -10,7 +12,7 @@ export function getDefaultMeals(): MealMonthRecord {
 }
 
 /**
- * Fetch School Meals for a specific year-month (e.g. "2026-09")
+ * Fetch School Meals for a specific year-month (e.g. "2026-09", "2026-11")
  */
 export async function fetchMealMonth(targetYearMonth?: string): Promise<MealMonthRecord> {
   const kst = getKSTDate();
@@ -20,6 +22,10 @@ export async function fetchMealMonth(targetYearMonth?: string): Promise<MealMont
   // 1. If matching default bundled data, start with it
   if (defaultMealData && defaultMealData.yearMonth === yearMonth) {
     record = JSON.parse(JSON.stringify(defaultMealData));
+  } else if (meals202611 && (meals202611 as any).yearMonth === yearMonth) {
+    record = JSON.parse(JSON.stringify(meals202611));
+  } else if (meals202610 && (meals202610 as any).yearMonth === yearMonth) {
+    record = JSON.parse(JSON.stringify(meals202610));
   }
 
   // 2. Check local Express API
@@ -66,6 +72,12 @@ export async function fetchMealMonth(targetYearMonth?: string): Promise<MealMont
   if (!record) {
     if (defaultMealData && defaultMealData.yearMonth === yearMonth) {
       return defaultMealData as MealMonthRecord;
+    }
+    if (meals202611 && (meals202611 as any).yearMonth === yearMonth) {
+      return meals202611 as MealMonthRecord;
+    }
+    if (meals202610 && (meals202610 as any).yearMonth === yearMonth) {
+      return meals202610 as MealMonthRecord;
     }
     const [y, m] = yearMonth.split('-').map(Number);
     return {

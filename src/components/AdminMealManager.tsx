@@ -631,6 +631,7 @@ export const AdminMealManager: React.FC<AdminMealManagerProps> = ({ onMessage })
             ) : (
               record.meals.map(m => {
                 const isEditing = editingDayId === m.id;
+                const safeItems = Array.isArray(m?.menuItems) ? m.menuItems.filter(item => typeof item === 'string' && item.trim().length > 0) : [];
                 return (
                   <tr key={m.id} className="hover:bg-orange-50/30 transition">
                     <td className="py-2 px-3 font-bold text-gray-800">
@@ -648,9 +649,9 @@ export const AdminMealManager: React.FC<AdminMealManagerProps> = ({ onMessage })
                           placeholder="메뉴 쉼표 구분"
                           className="w-full text-xs px-2 py-1 border border-orange-300 rounded-md"
                         />
-                      ) : m.menuItems && m.menuItems.length > 0 ? (
+                      ) : safeItems.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
-                          {m.menuItems.map((item, idx) => (
+                          {safeItems.map((item, idx) => (
                             <span
                               key={idx}
                               className="bg-orange-50 text-orange-900 border border-orange-200 text-[11px] px-2 py-0.5 rounded-md font-medium"
@@ -782,7 +783,7 @@ export const AdminMealManager: React.FC<AdminMealManagerProps> = ({ onMessage })
                         <td className="py-2 px-3 font-bold text-gray-800">{m.day}일</td>
                         <td className="py-2 px-3 text-gray-600">{m.dayOfWeek}</td>
                         <td className="py-2 px-3">
-                          {m.menuItems.length > 0 ? (
+                          {Array.isArray(m?.menuItems) && m.menuItems.length > 0 ? (
                             <div className="flex flex-wrap gap-1">
                               {m.menuItems.map((dish, i) => (
                                 <span
