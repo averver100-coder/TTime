@@ -113,7 +113,7 @@ ${combinedSheetsText.slice(0, 100000)}
 `;
 
             const aiRes = await ai.models.generateContent({
-              model: 'gemini-3.6-flash',
+              model: 'gemini-3.8-flash',
               contents: [prompt],
               config: {
                 responseMimeType: 'application/json',
@@ -234,7 +234,7 @@ ${combinedSheetsText.slice(0, 100000)}
 `;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.8-flash',
         contents: [
           prompt,
           {
@@ -985,7 +985,7 @@ ${csv}
 `;
 
           const aiRes = await ai.models.generateContent({
-            model: 'gemini-3.6-flash',
+            model: 'gemini-3.8-flash',
             contents: [prompt],
             config: { responseMimeType: 'application/json' }
           });
@@ -1053,7 +1053,7 @@ ${csv}
         };
 
         const aiRes = await ai.models.generateContent({
-          model: 'gemini-3.6-flash',
+          model: 'gemini-3.8-flash',
           contents: [filePart, prompt],
           config: { responseMimeType: 'application/json' }
         });
@@ -1315,7 +1315,7 @@ ${csv}
 `;
 
           const aiRes = await ai.models.generateContent({
-            model: 'gemini-3.6-flash',
+            model: 'gemini-3.8-flash',
             contents: [prompt],
             config: { responseMimeType: 'application/json' }
           });
@@ -1387,7 +1387,7 @@ ${csv}
         };
 
         const aiRes = await ai.models.generateContent({
-          model: 'gemini-3.6-flash',
+          model: 'gemini-3.8-flash',
           contents: [filePart, prompt],
           config: { responseMimeType: 'application/json' }
         });
@@ -1483,7 +1483,7 @@ ${csv}
 `;
 
           const aiRes = await ai.models.generateContent({
-            model: 'gemini-3.6-flash',
+            model: 'gemini-3.8-flash',
             contents: [prompt],
             config: { responseMimeType: 'application/json' }
           });
@@ -1549,7 +1549,7 @@ ${csv}
         };
 
         const aiRes = await ai.models.generateContent({
-          model: 'gemini-3.6-flash',
+          model: 'gemini-3.8-flash',
           contents: [filePart, prompt],
           config: { responseMimeType: 'application/json' }
         });
