@@ -239,10 +239,8 @@ export const TodayMeal: React.FC<TodayMealProps> = () => {
             <span className="w-4 h-4 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
             <span>식단 정보를 불러오는 중입니다...</span>
           </div>
-        ) : targetedMeal && targetedMeal.menuItems && targetedMeal.menuItems.length > 0 ? (
-          /* When Menu Items are Available */
+        ) : targetedMeal ? (
           <div className="space-y-4">
-            {/* Status & Calorie Bar */}
             <div className="flex items-center justify-between flex-wrap gap-2 pb-1 border-b border-gray-100 text-xs">
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-gray-800 flex items-center gap-1">
@@ -263,10 +261,9 @@ export const TodayMeal: React.FC<TodayMealProps> = () => {
               )}
             </div>
 
-            {/* Menu Cards Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {targetedMeal.menuItems.map((item, idx) => {
-                const category = getDishCategory(item, idx);
+              {(targetedMeal.menuItems ?? []).map((item, idx) => {
+                const category = getDishCategory(item ?? '', idx);
                 return (
                   <div
                     key={idx}
@@ -279,7 +276,7 @@ export const TodayMeal: React.FC<TodayMealProps> = () => {
                         </span>
                       </div>
                       <span className="font-extrabold text-gray-900 text-sm leading-snug break-keep">
-                        {item}
+                        {item ?? ''}
                       </span>
                     </div>
 
@@ -295,7 +292,6 @@ export const TodayMeal: React.FC<TodayMealProps> = () => {
               })}
             </div>
 
-            {/* Nutrition / Allergen Tip */}
             <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 text-[11px] text-gray-500 flex items-start gap-2">
               <Info className="w-3.5 h-3.5 text-orange-500 shrink-0 mt-0.5" />
               <div>
@@ -303,21 +299,7 @@ export const TodayMeal: React.FC<TodayMealProps> = () => {
               </div>
             </div>
           </div>
-        ) : targetedMeal && targetedMeal.note === '중간고사' ? (
-          /* Midterm Exam Period Banner */
-          <div className="py-6 px-4 text-center bg-blue-50/70 rounded-2xl border border-blue-200 space-y-2">
-            <div className="w-10 h-10 mx-auto rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
-              <CalendarDays className="w-5 h-5" />
-            </div>
-            <h4 className="text-sm font-extrabold text-blue-950">
-              {targetedDateInfo.month}월 {targetedDateInfo.day}일 ({targetedDateInfo.dayOfWeek}) — 중간고사 기간
-            </h4>
-            <p className="text-xs text-blue-800/80 max-w-md mx-auto leading-relaxed">
-              2학기 중간고사 시험 기간으로 정규 급식이 제공되지 않거나 조기 귀가 일정이 진행됩니다.
-            </p>
-          </div>
         ) : targetedDateInfo.isWeekend ? (
-          /* Weekend */
           <div className="py-6 px-4 text-center bg-gray-50 rounded-2xl border border-gray-100 space-y-2">
             <div className="w-10 h-10 mx-auto rounded-full bg-gray-100 flex items-center justify-center text-gray-400">
               <Apple className="w-5 h-5 text-amber-500" />
@@ -330,7 +312,6 @@ export const TodayMeal: React.FC<TodayMealProps> = () => {
             </p>
           </div>
         ) : (
-          /* No Meal Recorded */
           <div className="py-6 px-4 text-center bg-gray-50 rounded-2xl border border-gray-100 space-y-2">
             <div className="w-10 h-10 mx-auto rounded-full bg-gray-100 flex items-center justify-center text-gray-400">
               <UtensilsCrossed className="w-5 h-5" />

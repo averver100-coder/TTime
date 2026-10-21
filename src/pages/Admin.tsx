@@ -90,14 +90,6 @@ export const Admin: React.FC = () => {
 
   const [copiedDomain, setCopiedDomain] = useState(false);
 
-  const handleCopyCurrentDomain = () => {
-    if (typeof window !== 'undefined') {
-      navigator.clipboard.writeText(window.location.hostname);
-      setCopiedDomain(true);
-      setTimeout(() => setCopiedDomain(false), 2500);
-    }
-  };
-
   const handleAdminCheckUpdate = async () => {
     const hasUpdate = await checkForUpdate();
     if (!hasUpdate) {
@@ -869,7 +861,13 @@ export const Admin: React.FC = () => {
                   <div className="pt-2 border-t border-amber-200/70 flex items-center justify-between flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={handleCopyCurrentDomain}
+                      onClick={() => {
+                        if (typeof window !== 'undefined') {
+                          navigator.clipboard.writeText(window.location.hostname);
+                          setCopiedDomain(true);
+                          setTimeout(() => setCopiedDomain(false), 2500);
+                        }
+                      }}
                       className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-bold transition cursor-pointer"
                     >
                       <Copy className="w-3.5 h-3.5" />

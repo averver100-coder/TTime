@@ -1494,6 +1494,18 @@ ${csv}
             else if (cleanJson.startsWith('```')) cleanJson = cleanJson.replace(/^```\s*/, '').replace(/\s*```$/, '');
             const parsed = JSON.parse(cleanJson);
             if (parsed && Array.isArray(parsed.meals) && parsed.meals.length > 0) {
+              const firstMealDate = parsed.meals[0].date || parsed.meals[0].id;
+              if (firstMealDate && typeof firstMealDate === 'string' && firstMealDate.length >= 7) {
+                const [yStr, mStr] = firstMealDate.split('-');
+                const realY = parseInt(yStr, 10);
+                const realM = parseInt(mStr, 10);
+                if (!isNaN(realY) && !isNaN(realM) && realY >= 2020 && realM >= 1 && realM <= 12) {
+                  parsed.year = realY;
+                  parsed.month = realM;
+                  parsed.yearMonth = `${realY}-${String(realM).padStart(2, '0')}`;
+                  parsed.title = `${realY}년 ${realM}월 식단표`;
+                }
+              }
               return res.json({ success: true, record: parsed });
             }
           }
@@ -1560,6 +1572,18 @@ ${csv}
           else if (cleanJson.startsWith('```')) cleanJson = cleanJson.replace(/^```\s*/, '').replace(/\s*```$/, '');
           const parsed = JSON.parse(cleanJson);
           if (parsed && Array.isArray(parsed.meals) && parsed.meals.length > 0) {
+            const firstMealDate = parsed.meals[0].date || parsed.meals[0].id;
+            if (firstMealDate && typeof firstMealDate === 'string' && firstMealDate.length >= 7) {
+              const [yStr, mStr] = firstMealDate.split('-');
+              const realY = parseInt(yStr, 10);
+              const realM = parseInt(mStr, 10);
+              if (!isNaN(realY) && !isNaN(realM) && realY >= 2020 && realM >= 1 && realM <= 12) {
+                parsed.year = realY;
+                parsed.month = realM;
+                parsed.yearMonth = `${realY}-${String(realM).padStart(2, '0')}`;
+                parsed.title = `${realY}년 ${realM}월 식단표`;
+              }
+            }
             return res.json({ success: true, record: parsed });
           }
         }
