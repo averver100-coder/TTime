@@ -88,10 +88,6 @@ export const Admin: React.FC = () => {
   const [isPreviewPushPopupOpen, setIsPreviewPushPopupOpen] = useState(false);
   const { showPushPopup, loading: isPushPopupConfigLoading } = usePushPopupConfig();
 
-  // Emergency / Dev bypass login state
-  const [showEmergencyLogin, setShowEmergencyLogin] = useState(false);
-  const [emergencyPw, setEmergencyPw] = useState('');
-  const [emergencyError, setEmergencyError] = useState('');
   const [copiedDomain, setCopiedDomain] = useState(false);
 
   const handleCopyCurrentDomain = () => {
@@ -100,34 +96,6 @@ export const Admin: React.FC = () => {
       setCopiedDomain(true);
       setTimeout(() => setCopiedDomain(false), 2500);
     }
-  };
-
-  const handleEmergencyLogin = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (emergencyPw.trim() !== 'nyng5929!') {
-      setEmergencyError('비상 마스터 비밀번호가 올바르지 않습니다.');
-      return;
-    }
-    const superUser = buildSuperAdminUser('비상 마스터 인증');
-    setCurrentUser(superUser);
-    setIsAuthenticated(true);
-    saveSharedSSOSession(superUser);
-    if (typeof window !== 'undefined') {
-      try {
-        sessionStorage.setItem(CURRENT_ADMIN_STORAGE_KEY, JSON.stringify(superUser));
-        localStorage.setItem(CURRENT_ADMIN_STORAGE_KEY, JSON.stringify(superUser));
-      } catch {}
-    }
-    await logAuditEvent({
-      operatorId: superUser.email,
-      operatorName: superUser.name,
-      action: '비상 마스터 로그인',
-      target: superUser.email,
-      summary: '도메인 미승인 또는 개발 테스트 환경에서 최고관리자 비상 로그인 수행',
-      category: 'auth'
-    }).catch(() => {});
-    setMessage('');
-    setEmergencyPw('');
   };
 
   const handleAdminCheckUpdate = async () => {
@@ -907,13 +875,6 @@ export const Admin: React.FC = () => {
                       <Copy className="w-3.5 h-3.5" />
                       <span>{copiedDomain ? '도메인 복사 완료!' : '현재 도메인 복사하기'}</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowEmergencyLogin(true)}
-                      className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition cursor-pointer"
-                    >
-                      비상 로그인 열기
-                    </button>
                   </div>
                 )}
               </div>
@@ -956,58 +917,6 @@ export const Admin: React.FC = () => {
                 <Smartphone className="w-3.5 h-3.5 text-gray-500" />
                 <span>📱 팝업 차단 환경일 경우: 전체화면 리다이렉트 로그인</span>
               </button>
-
-              {/* Emergency / Dev Master Login */}
-              <div className="pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowEmergencyLogin(!showEmergencyLogin)}
-                  className="w-full py-2 px-3 bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-900 border border-gray-200 rounded-xl text-xs font-semibold flex items-center justify-between transition cursor-pointer"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <KeyRound className="w-3.5 h-3.5 text-gray-500" />
-                    <span>개발·비상 마스터 로그인 (averver)</span>
-                  </span>
-                  <span className="text-[10px] text-gray-400">
-                    {showEmergencyLogin ? '닫기 ▲' : '열기 ▼'}
-                  </span>
-                </button>
-
-                {showEmergencyLogin && (
-                  <form onSubmit={handleEmergencyLogin} className="mt-2 p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2.5 animate-in fade-in">
-                    <div className="text-xs text-amber-900">
-                      <p className="font-bold">🔑 최고관리자(averver100@gmail.com) 비상 접속</p>
-                      <p className="text-[11px] text-amber-700 mt-0.5">
-                        도메인 승인 지연 시 마스터 비밀번호로 즉시 로그인하여 테스트할 수 있습니다.
-                      </p>
-                    </div>
-                    <div>
-                      <input
-                        type="password"
-                        value={emergencyPw}
-                        onChange={(e) => {
-                          setEmergencyPw(e.target.value);
-                          setEmergencyError('');
-                        }}
-                        placeholder="마스터 비밀번호 입력"
-                        className="w-full px-3 py-2 text-xs bg-white border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400"
-                        autoFocus
-                      />
-                      {emergencyError && (
-                        <p className="text-[11px] text-red-600 font-bold mt-1">{emergencyError}</p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="submit"
-                        className="flex-1 py-2 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition shadow-2xs cursor-pointer active:scale-95"
-                      >
-                        최고관리자로 즉시 접속
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </div>
 
               {/* PWA App Install Section on Login Main Screen */}
               <div className="pt-3.5 border-t border-gray-100 flex items-center justify-between">
