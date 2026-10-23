@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { 
   getAuth, 
   initializeAuth, 
@@ -16,7 +16,15 @@ export const app = getApps().some(a => a.name === '[DEFAULT]')
   ? getApp('[DEFAULT]') 
   : initializeApp(firebaseConfig);
 
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+let firestoreInstance;
+try {
+  firestoreInstance = initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+  }, firebaseConfig.firestoreDatabaseId);
+} catch {
+  firestoreInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+}
+export const db = firestoreInstance;
 
 // Shared Google OAuth Authentication app (connected to the user's primary Firebase Auth project 'acquired-myth-1nzsc',
 // which is shared with IT Desk (devicecare-drab.vercel.app), IPass (i-pass-three.vercel.app), and 디벗On (dibeot.vercel.app))
