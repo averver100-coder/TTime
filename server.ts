@@ -1493,19 +1493,27 @@ ${csv}
             if (cleanJson.startsWith('```json')) cleanJson = cleanJson.replace(/^```json\s*/, '').replace(/\s*```$/, '');
             else if (cleanJson.startsWith('```')) cleanJson = cleanJson.replace(/^```\s*/, '').replace(/\s*```$/, '');
             const parsed = JSON.parse(cleanJson);
-            if (parsed && Array.isArray(parsed.meals) && parsed.meals.length > 0) {
-              const firstMealDate = parsed.meals[0].date || parsed.meals[0].id;
-              if (firstMealDate && typeof firstMealDate === 'string' && firstMealDate.length >= 7) {
-                const [yStr, mStr] = firstMealDate.split('-');
-                const realY = parseInt(yStr, 10);
-                const realM = parseInt(mStr, 10);
-                if (!isNaN(realY) && !isNaN(realM) && realY >= 2020 && realM >= 1 && realM <= 12) {
-                  parsed.year = realY;
-                  parsed.month = realM;
-                  parsed.yearMonth = `${realY}-${String(realM).padStart(2, '0')}`;
-                  parsed.title = `${realY}년 ${realM}월 식단표`;
-                }
-              }
+            if (parsed && Array.isArray(parsed.meals)) {
+              parsed.year = targetYear;
+              parsed.month = targetMonth;
+              parsed.yearMonth = `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
+              parsed.title = `${targetYear}년 ${targetMonth}월 식단표`;
+
+              // Ensure each meal has correct yearMonth and prefix matching targetMonth
+              parsed.meals = parsed.meals.map((m: any) => {
+                const dayNum = Number(m.day) || 1;
+                const dPad = String(dayNum).padStart(2, '0');
+                const mPad = String(targetMonth).padStart(2, '0');
+                const dateStr = `${targetYear}-${mPad}-${dPad}`;
+                return {
+                  ...m,
+                  id: dateStr,
+                  date: dateStr,
+                  month: targetMonth,
+                  day: dayNum
+                };
+              });
+
               return res.json({ success: true, record: parsed });
             }
           }
@@ -1571,19 +1579,26 @@ ${csv}
           if (cleanJson.startsWith('```json')) cleanJson = cleanJson.replace(/^```json\s*/, '').replace(/\s*```$/, '');
           else if (cleanJson.startsWith('```')) cleanJson = cleanJson.replace(/^```\s*/, '').replace(/\s*```$/, '');
           const parsed = JSON.parse(cleanJson);
-          if (parsed && Array.isArray(parsed.meals) && parsed.meals.length > 0) {
-            const firstMealDate = parsed.meals[0].date || parsed.meals[0].id;
-            if (firstMealDate && typeof firstMealDate === 'string' && firstMealDate.length >= 7) {
-              const [yStr, mStr] = firstMealDate.split('-');
-              const realY = parseInt(yStr, 10);
-              const realM = parseInt(mStr, 10);
-              if (!isNaN(realY) && !isNaN(realM) && realY >= 2020 && realM >= 1 && realM <= 12) {
-                parsed.year = realY;
-                parsed.month = realM;
-                parsed.yearMonth = `${realY}-${String(realM).padStart(2, '0')}`;
-                parsed.title = `${realY}년 ${realM}월 식단표`;
-              }
-            }
+          if (parsed && Array.isArray(parsed.meals)) {
+            parsed.year = targetYear;
+            parsed.month = targetMonth;
+            parsed.yearMonth = `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
+            parsed.title = `${targetYear}년 ${targetMonth}월 식단표`;
+
+            parsed.meals = parsed.meals.map((m: any) => {
+              const dayNum = Number(m.day) || 1;
+              const dPad = String(dayNum).padStart(2, '0');
+              const mPad = String(targetMonth).padStart(2, '0');
+              const dateStr = `${targetYear}-${mPad}-${dPad}`;
+              return {
+                ...m,
+                id: dateStr,
+                date: dateStr,
+                month: targetMonth,
+                day: dayNum
+              };
+            });
+
             return res.json({ success: true, record: parsed });
           }
         }
