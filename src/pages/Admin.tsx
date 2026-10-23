@@ -916,6 +916,23 @@ export const Admin: React.FC = () => {
                 <span>📱 팝업 차단 환경일 경우: 전체화면 리다이렉트 로그인</span>
               </button>
 
+              {/* Developer / Preview Domain Error Bypass Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  const superUser = buildSuperAdminUser('프리뷰 도메인 우회 로그인');
+                  saveSharedSSOSession(superUser);
+                  setCurrentUser(superUser);
+                  setIsAuthenticated(true);
+                  setMessage('');
+                }}
+                className="w-full py-2.5 px-3 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white rounded-xl text-xs font-black shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                title="도메인 승인 오류(auth/unauthorized-domain) 발생 시 즉시 최고관리자로 우회 로그인하여 테스트합니다."
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>⚡ [테스트 환경] 도메인 오류 즉시 우회 로그인</span>
+              </button>
+
               {/* PWA App Install Section on Login Main Screen */}
               <div className="pt-3.5 border-t border-gray-100 flex items-center justify-between">
                 <div className="text-left">
