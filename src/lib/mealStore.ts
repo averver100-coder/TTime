@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocFromServer, setDoc, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
 import { MealDay, MealMonthRecord } from '../types/meal';
 import defaultMealData from '../data/defaultMeals.json';
@@ -12,39 +12,17 @@ export function getDefaultMeals(): MealMonthRecord {
 }
 
 /**
- * Fetch School Meals for a specific year-month (e.g. "2026-09", "2026-11")
+ * Fetch School Meals for a specific year-month with server-first freshness check
  */
 export async function fetchMealMonth(targetYearMonth?: string): Promise<MealMonthRecord> {
   const kst = getKSTDate();
   const yearMonth = targetYearMonth || kst.yearMonth;
   let record: MealMonthRecord | null = null;
 
-  // 1. If matching default bundled data, start with it
-  if (defaultMealData && defaultMealData.yearMonth === yearMonth) {
-    record = JSON.parse(JSON.stringify(defaultMealData));
-  } else if (meals202611 && (meals202611 as any).yearMonth === yearMonth) {
-    record = JSON.parse(JSON.stringify(meals202611));
-  } else if (meals202610 && (meals202610 as any).yearMonth === yearMonth) {
-    record = JSON.parse(JSON.stringify(meals202610));
-  }
-
-  // 2. Check local Express API
-  try {
-    const res = await fetch(`/api/meals?month=${encodeURIComponent(yearMonth)}`).catch(() => null);
-    if (res && res.ok) {
-      const data = await res.json().catch(() => null);
-      if (data && Array.isArray(data.meals) && data.meals.length > 0) {
-        record = data;
-      }
-    }
-  } catch (err) {
-    console.warn('Failed to fetch meals from local API:', err);
-  }
-
-  // 3. Check Firestore for authoritative cloud record
+  // 1. Check Firestore server first (bypassing client offline cache to prevent stale data)
   try {
     const docRef = doc(db, 'meals', yearMonth);
-    const snap = await getDoc(docRef);
+    const snap = await getDocFromServer(docRef);
     if (snap.exists()) {
       const cloudData = snap.data() as MealMonthRecord;
       if (cloudData && Array.isArray(cloudData.meals)) {
@@ -52,10 +30,37 @@ export async function fetchMealMonth(targetYearMonth?: string): Promise<MealMont
       }
     }
   } catch (err) {
-    console.warn('Failed to fetch meals from Firestore:', err);
+    // Fallback to regular getDoc if offline or server unreachable
+    try {
+      const docRef = doc(db, 'meals', yearMonth);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const cloudData = snap.data() as MealMonthRecord;
+        if (cloudData && Array.isArray(cloudData.meals)) {
+          record = cloudData;
+        }
+      }
+    } catch (innerErr) {
+      console.warn('Failed to fetch meals from Firestore:', innerErr);
+    }
   }
 
-  // 4. LocalStorage cache fallback
+  // 2. Check local Express API
+  if (!record) {
+    try {
+      const res = await fetch(`/api/meals?month=${encodeURIComponent(yearMonth)}`).catch(() => null);
+      if (res && res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && Array.isArray(data.meals) && data.meals.length > 0) {
+          record = data;
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch meals from local API:', err);
+    }
+  }
+
+  // 3. LocalStorage cache fallback
   if (!record) {
     try {
       const cached = localStorage.getItem(`meal_${yearMonth}`);
@@ -66,6 +71,17 @@ export async function fetchMealMonth(targetYearMonth?: string): Promise<MealMont
         }
       }
     } catch {}
+  }
+
+  // 4. Fallback to bundled default data if nothing in cloud/API/cache
+  if (!record) {
+    if (defaultMealData && defaultMealData.yearMonth === yearMonth) {
+      record = JSON.parse(JSON.stringify(defaultMealData));
+    } else if (meals202611 && (meals202611 as any).yearMonth === yearMonth) {
+      record = JSON.parse(JSON.stringify(meals202611));
+    } else if (meals202610 && (meals202610 as any).yearMonth === yearMonth) {
+      record = JSON.parse(JSON.stringify(meals202610));
+    }
   }
 
   // Fallback if nothing found
@@ -582,3 +598,28 @@ export function exportMealsToExcel(record: MealMonthRecord) {
   XLSX.writeFile(wb, `${record.yearMonth}_식단표.xlsx`);
 }
 
+
+/**
+ * Real-time subscription to school meals for a specific year-month
+ */
+export function subscribeMealMonth(targetYearMonth: string, onUpdate: (record: MealMonthRecord | null) => void): () => void {
+  try {
+    const docRef = doc(db, 'meals', targetYearMonth);
+    const unsubscribe = onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        const cloudData = snap.data() as MealMonthRecord;
+        if (cloudData && Array.isArray(cloudData.meals)) {
+          onUpdate(cloudData);
+          return;
+        }
+      }
+      onUpdate(null);
+    }, (err) => {
+      console.warn('Meal real-time subscription error:', err);
+    });
+    return unsubscribe;
+  } catch (err) {
+    console.warn('Failed to subscribe to meals:', err);
+    return () => {};
+  }
+}
