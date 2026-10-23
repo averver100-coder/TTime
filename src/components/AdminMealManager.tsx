@@ -48,6 +48,27 @@ export const AdminMealManager: React.FC<AdminMealManagerProps> = ({ onMessage })
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [showUploadArea, setShowUploadArea] = useState<boolean>(false);
   const [previewRecord, setPreviewRecord] = useState<MealMonthRecord | null>(null);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  const handleSyncDatabase = async () => {
+    if (!window.confirm('Firestore 클라우드 급식 컬렉션을 초기화하고 최신 11월 식단 데이터를 재업로드하여 완전 동기화하시겠습니까?')) return;
+    setIsSyncing(true);
+    try {
+      const res = await fetch('/api/sync-meals', { method: 'POST' });
+      if (res.ok) {
+        alert('성공: Firestore 급식 컬렉션이 초기화되고 최신 식단 데이터가 재업로드되어 완전 동기화되었습니다!');
+        onMessage?.('Firestore 급식 컬렉션이 성공적으로 동기화되었습니다.');
+        const data = await fetchMealMonth(yearMonthString);
+        setRecord(data);
+      } else {
+        throw new Error('동기화 응답 오류');
+      }
+    } catch (err: any) {
+      alert(`동기화 중 오류 발생: ${err?.message || '실패'}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Editing single day
   const [editingDayId, setEditingDayId] = useState<string | null>(null);
@@ -399,6 +420,17 @@ export const AdminMealManager: React.FC<AdminMealManagerProps> = ({ onMessage })
           >
             <FileDown className="w-3.5 h-3.5" />
             <span>엑셀 다운로드</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleSyncDatabase}
+            disabled={isSyncing}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition cursor-pointer disabled:opacity-50"
+            title="Firestore 클라우드 급식 컬렉션을 초기화하고 최신 11월 식단 데이터를 재업로드하여 완전 동기화합니다."
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? '동기화 중...' : '클라우드 DB 동기화'}</span>
           </button>
         </div>
       </div>

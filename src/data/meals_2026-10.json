@@ -3,7 +3,7 @@
   "year": 2026,
   "month": 10,
   "title": "2026년 10월 식단표",
-  "updatedAt": "2026-10-01T00:00:00.000Z",
+  "updatedAt": "2026-10-23T02:04:01.417Z",
   "meals": [
     {
       "id": "2026-10-01",
@@ -134,6 +134,96 @@
       "note": "한글날"
     },
     {
+      "id": "2026-10-10",
+      "date": "2026-10-10",
+      "month": 10,
+      "day": 10,
+      "dayOfWeek": "토요일",
+      "menuItems": [],
+      "calories": "",
+      "note": "주말"
+    },
+    {
+      "id": "2026-10-11",
+      "date": "2026-10-11",
+      "month": 10,
+      "day": 11,
+      "dayOfWeek": "일요일",
+      "menuItems": [],
+      "calories": "",
+      "note": "주말"
+    },
+    {
+      "id": "2026-10-12",
+      "date": "2026-10-12",
+      "month": 10,
+      "day": 12,
+      "dayOfWeek": "월요일",
+      "menuItems": [],
+      "calories": "",
+      "note": "2학기 중간고사"
+    },
+    {
+      "id": "2026-10-13",
+      "date": "2026-10-13",
+      "month": 10,
+      "day": 13,
+      "dayOfWeek": "화요일",
+      "menuItems": [],
+      "calories": "",
+      "note": "2학기 중간고사"
+    },
+    {
+      "id": "2026-10-14",
+      "date": "2026-10-14",
+      "month": 10,
+      "day": 14,
+      "dayOfWeek": "수요일",
+      "menuItems": [],
+      "calories": "",
+      "note": "2학기 중간고사"
+    },
+    {
+      "id": "2026-10-15",
+      "date": "2026-10-15",
+      "month": 10,
+      "day": 15,
+      "dayOfWeek": "목요일",
+      "menuItems": [],
+      "calories": "",
+      "note": "2학기 중간고사"
+    },
+    {
+      "id": "2026-10-16",
+      "date": "2026-10-16",
+      "month": 10,
+      "day": 16,
+      "dayOfWeek": "금요일",
+      "menuItems": [],
+      "calories": "",
+      "note": "재량휴업일"
+    },
+    {
+      "id": "2026-10-17",
+      "date": "2026-10-17",
+      "month": 10,
+      "day": 17,
+      "dayOfWeek": "토요일",
+      "menuItems": [],
+      "calories": "",
+      "note": "주말"
+    },
+    {
+      "id": "2026-10-18",
+      "date": "2026-10-18",
+      "month": 10,
+      "day": 18,
+      "dayOfWeek": "일요일",
+      "menuItems": [],
+      "calories": "",
+      "note": "주말"
+    },
+    {
       "id": "2026-10-19",
       "date": "2026-10-19",
       "month": 10,
@@ -214,6 +304,119 @@
       ],
       "calories": "750 kcal",
       "note": ""
+    },
+    {
+      "id": "2026-10-24",
+      "date": "2026-10-24",
+      "month": 10,
+      "day": 24,
+      "dayOfWeek": "토요일",
+      "menuItems": [],
+      "calories": "",
+      "note": "주말"
+    },
+    {
+      "id": "2026-10-25",
+      "date": "2026-10-25",
+      "month": 10,
+      "day": 25,
+      "dayOfWeek": "일요일",
+      "menuItems": [],
+      "calories": "",
+      "note": "주말"
+    },
+    {
+      "id": "2026-10-26",
+      "date": "2026-10-26",
+      "month": 10,
+      "day": 26,
+      "dayOfWeek": "월요일",
+      "menuItems": [
+        "보리밥",
+        "청국장찌개",
+        "매콤돼지갈비찜",
+        "깻잎나물",
+        "배추김치"
+      ],
+      "calories": "730 kcal",
+      "note": ""
+    },
+    {
+      "id": "2026-10-27",
+      "date": "2026-10-27",
+      "month": 10,
+      "day": 27,
+      "dayOfWeek": "화요일",
+      "menuItems": [
+        "기장밥",
+        "나가사키짬뽕국",
+        "수제꿔바로우",
+        "짜사이무침",
+        "깍두기",
+        "주스"
+      ],
+      "calories": "760 kcal",
+      "note": ""
+    },
+    {
+      "id": "2026-10-28",
+      "date": "2026-10-28",
+      "month": 10,
+      "day": 28,
+      "dayOfWeek": "수요일",
+      "menuItems": [
+        "돈코츠라멘",
+        "미니밥",
+        "타코야끼",
+        "단무지",
+        "겉절이김치",
+        "과일"
+      ],
+      "calories": "820 kcal",
+      "note": ""
+    },
+    {
+      "id": "2026-10-29",
+      "date": "2026-10-29",
+      "month": 10,
+      "day": 29,
+      "dayOfWeek": "목요일",
+      "menuItems": [
+        "흑미밥",
+        "들깨수제비국",
+        "소불고기당면볶음",
+        "오이부추무침",
+        "배추김치"
+      ],
+      "calories": "720 kcal",
+      "note": ""
+    },
+    {
+      "id": "2026-10-30",
+      "date": "2026-10-30",
+      "month": 10,
+      "day": 30,
+      "dayOfWeek": "금요일",
+      "menuItems": [
+        "치킨마요덮밥",
+        "미소장국",
+        "국물떡볶이",
+        "김말이튀김",
+        "깍두기",
+        "요구르트"
+      ],
+      "calories": "750 kcal",
+      "note": ""
+    },
+    {
+      "id": "2026-10-31",
+      "date": "2026-10-31",
+      "month": 10,
+      "day": 31,
+      "dayOfWeek": "토요일",
+      "menuItems": [],
+      "calories": "",
+      "note": "주말"
     }
   ]
 }

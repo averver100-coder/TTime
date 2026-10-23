@@ -1199,6 +1199,17 @@ app.post('/api/meals', (req, res) => {
   }
 });
 
+app.post('/api/sync-meals', async (req, res) => {
+  try {
+    const { resetAndSyncMeals } = await import('./scripts/sync_meals.js');
+    const summary = await resetAndSyncMeals();
+    return res.json({ success: true, summary });
+  } catch (err: any) {
+    console.error('Error syncing meals:', err);
+    return res.status(500).json({ error: err?.message || '식단 동기화 처리 실패' });
+  }
+});
+
 // ==========================================
 // Schedule Change & Free Period Push Alerts
 // ==========================================

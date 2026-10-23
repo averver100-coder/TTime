@@ -443,7 +443,7 @@ export const TodayMeal: React.FC<TodayMealProps> = ({ selectedDate, onDateChange
             <div className="w-12 h-12 mx-auto rounded-full bg-white border border-amber-200 flex items-center justify-center shadow-2xs">
               {targetedMeal.note?.includes('수능') ? (
                 <GraduationCap className="w-6 h-6 text-indigo-600" />
-              ) : targetedMeal.note?.includes('휴업') || targetedMeal.note?.includes('재량') ? (
+              ) : targetedMeal.note?.includes('휴업') || targetedMeal.note?.includes('재량') || targetedMeal.note?.includes('한글날') || targetedMeal.note?.includes('개천절') || targetedMeal.note?.includes('공휴일') ? (
                 <Coffee className="w-6 h-6 text-amber-600" />
               ) : targetedMeal.note?.includes('시험') || targetedMeal.note?.includes('고사') ? (
                 <BookOpen className="w-6 h-6 text-blue-600" />
@@ -589,7 +589,7 @@ export const TodayMeal: React.FC<TodayMealProps> = ({ selectedDate, onDateChange
 
                     const noteStr = typeof m.note === 'string' ? m.note.trim() : '';
                     const isSuneung = noteStr.includes('수능');
-                    const isHoliday = noteStr.includes('휴업') || noteStr.includes('재량') || noteStr.includes('개교기념일');
+                    const isHoliday = noteStr.includes('휴업') || noteStr.includes('재량') || noteStr.includes('개교기념일') || noteStr.includes('한글날') || noteStr.includes('개천절') || noteStr.includes('공휴일');
                     const isExam = noteStr.includes('시험') || noteStr.includes('고사');
                     const dayOfWeekStr = typeof m.dayOfWeek === 'string' ? m.dayOfWeek : '';
                     const isWeekendDay = dayOfWeekStr.includes('토') || dayOfWeekStr.includes('일') || noteStr.includes('주말');
@@ -699,7 +699,7 @@ export const TodayMeal: React.FC<TodayMealProps> = ({ selectedDate, onDateChange
 
                         const noteStr = typeof m.note === 'string' ? m.note.trim() : '';
                         const isSuneung = noteStr.includes('수능');
-                        const isHoliday = noteStr.includes('휴업') || noteStr.includes('재량') || noteStr.includes('개교기념일');
+                        const isHoliday = noteStr.includes('휴업') || noteStr.includes('재량') || noteStr.includes('개교기념일') || noteStr.includes('한글날') || noteStr.includes('개천절') || noteStr.includes('공휴일');
                         const isExam = noteStr.includes('시험') || noteStr.includes('고사');
                         const dayOfWeekStr = typeof m.dayOfWeek === 'string' ? m.dayOfWeek : '';
                         const isWeekendDay = dayOfWeekStr.includes('토') || dayOfWeekStr.includes('일') || noteStr.includes('주말');
