@@ -11,7 +11,7 @@ import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
 export default function App() {
   return (
     <BrowserRouter>
-      <PWAUpdatePrompt position="bottom" />
+      <PWAUpdatePrompt />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/admin" element={<Admin />} />
