@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { RefreshCw, Lock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { usePWAUpdate } from '../lib/pwaUpdateManager';
+import { getAppReleaseVersion, showVersionToast } from '../lib/version';
 
 export const Footer: React.FC = () => {
   const navigate = useNavigate();
@@ -9,10 +10,12 @@ export const Footer: React.FC = () => {
   const [checkedMsg, setCheckedMsg] = useState<string | null>(null);
 
   const handleManualCheck = async () => {
+    const releaseVer = getAppReleaseVersion();
     const hasUpdate = await checkForUpdate();
     if (!hasUpdate) {
-      setCheckedMsg('최신 버전 사용 중');
-      setTimeout(() => setCheckedMsg(null), 3000);
+      setCheckedMsg(`최신 (${releaseVer})`);
+      showVersionToast(releaseVer);
+      setTimeout(() => setCheckedMsg(null), 3500);
     }
   };
 

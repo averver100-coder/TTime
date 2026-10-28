@@ -53,6 +53,7 @@ import {
   buildSuperAdminUser
 } from '../lib/ssoAuth';
 import { usePWAUpdate, simulatePWAUpdateForTest } from '../lib/pwaUpdateManager';
+import { getAppReleaseVersion, showVersionToast } from '../lib/version';
 import { auth } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -91,10 +92,12 @@ export const Admin: React.FC = () => {
   const [copiedDomain, setCopiedDomain] = useState(false);
 
   const handleAdminCheckUpdate = async () => {
+    const releaseVer = getAppReleaseVersion();
     const hasUpdate = await checkForUpdate();
     if (!hasUpdate) {
-      setUpdateCheckToast('현재 최신 버전을 사용 중입니다.');
-      setTimeout(() => setUpdateCheckToast(null), 3000);
+      setUpdateCheckToast(`최신 (${releaseVer})`);
+      showVersionToast(releaseVer);
+      setTimeout(() => setUpdateCheckToast(null), 3500);
     }
   };
 
