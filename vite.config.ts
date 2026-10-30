@@ -66,17 +66,40 @@ function aistudioMediaPlugin(): Plugin {
 }
 // LINT.ThenChange(//depot/google3/java/com/google/alkali/boq/makersuite/applet_dev_service/templates/initializers/react_theme/vite.config.ts:aistudio_media_plugin)
 
-// Static release version and build identifiers pinned at compile time
-const STATIC_RELEASE_VERSION = 'V2026.10.28';
-const STATIC_BUILD_ID = '2026.10.28-release';
-const STATIC_BUILD_TIME_KST = '2026-10-28T00:00:00+09:00';
+// Calculate current KST (UTC+9) date string (YYYY.MM.DD) at build/compile time
+const getKSTDateString = (): string => {
+  if (process.env.VITE_APP_BUILD_DATE) {
+    return process.env.VITE_APP_BUILD_DATE;
+  }
+  const now = new Date();
+  const kstFormatter = new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = kstFormatter.formatToParts(now);
+  let year = '2026', month = '10', day = '29';
+  for (const p of parts) {
+    if (p.type === 'year') year = p.value;
+    if (p.type === 'month') month = p.value;
+    if (p.type === 'day') day = p.value;
+  }
+  return `${year}.${month}.${day}`;
+};
 
 export default defineConfig(() => {
+  const buildDate = getKSTDateString();
+  const releaseVersion = `V${buildDate}`;
+  const buildId = `${buildDate}-release`;
+
   return {
     define: {
-      __APP_RELEASE_VERSION__: JSON.stringify(STATIC_RELEASE_VERSION),
-      __APP_BUILD_ID__: JSON.stringify(STATIC_BUILD_ID),
-      __APP_BUILD_TIME_KST__: JSON.stringify(STATIC_BUILD_TIME_KST),
+      'import.meta.env.VITE_APP_BUILD_DATE': JSON.stringify(buildDate),
+      __APP_BUILD_DATE__: JSON.stringify(buildDate),
+      __APP_RELEASE_VERSION__: JSON.stringify(releaseVersion),
+      __APP_BUILD_ID__: JSON.stringify(buildId),
+      __APP_BUILD_TIME_KST__: JSON.stringify(new Date().toISOString()),
     },
     plugins: [
       react(), 

@@ -34,10 +34,32 @@ try {
   console.warn('[Server] Failed to initialize Firebase Firestore on server:', fbErr);
 }
 
-// Static release version and build metadata pinned at deployment
-const APP_RELEASE_VERSION = 'V2026.10.28';
-const APP_BUILD_ID = '2026.10.28-release';
-const APP_BUILD_TIME = '2026-10-28T00:00:00+09:00';
+// Dynamic release version and build metadata computed at startup/build
+const getKSTDateString = (): string => {
+  if (process.env.VITE_APP_BUILD_DATE) {
+    return process.env.VITE_APP_BUILD_DATE;
+  }
+  const now = new Date();
+  const kstFormatter = new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = kstFormatter.formatToParts(now);
+  let year = '2026', month = '10', day = '29';
+  for (const p of parts) {
+    if (p.type === 'year') year = p.value;
+    if (p.type === 'month') month = p.value;
+    if (p.type === 'day') day = p.value;
+  }
+  return `${year}.${month}.${day}`;
+};
+
+const buildDate = getKSTDateString();
+const APP_RELEASE_VERSION = `V${buildDate}`;
+const APP_BUILD_ID = `${buildDate}-release`;
+const APP_BUILD_TIME = new Date().toISOString();
 
 app.get('/api/version', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -47,7 +69,7 @@ app.get('/api/version', (req, res) => {
     version: APP_RELEASE_VERSION,
     buildId: APP_BUILD_ID,
     buildTime: APP_BUILD_TIME,
-    releaseDate: '2026-10-28'
+    releaseDate: buildDate
   });
 });
 
