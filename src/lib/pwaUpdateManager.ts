@@ -1,10 +1,11 @@
 import { useState } from 'react';
+import { checkServerVersionStrict } from './version';
 
 const RECENT_UPDATE_GUARD_KEY = 'pwa_update_recently';
-const GUARD_DURATION_MS = 15000; // 15 seconds
+const GUARD_DURATION_MS = 5 * 60 * 1000; // 5 minutes guard after applying update
 
 /**
- * Check if the page was refreshed for an update within the last 15 seconds
+ * Check if the page was refreshed for an update within the last 5 minutes
  */
 export function isRecentlyUpdated(): boolean {
   if (typeof window === 'undefined') return false;
@@ -20,7 +21,7 @@ export function isRecentlyUpdated(): boolean {
 }
 
 /**
- * Record update timestamp in sessionStorage to suppress re-prompting for 15s
+ * Record update timestamp in sessionStorage to suppress re-prompting for 5 minutes
  */
 export function markRecentlyUpdated(): void {
   if (typeof window === 'undefined') return;
@@ -76,33 +77,50 @@ export async function broadcastSkipWaitingToAllWorkers(): Promise<void> {
 }
 
 /**
- * Force simulate an update prompt (triggers IT Desk event and clears 15s guard)
+ * Force simulate an update prompt for testing (e.g., from Admin page)
  */
 export function simulatePWAUpdateForTest(): void {
   if (typeof window !== 'undefined') {
     try {
       sessionStorage.removeItem(RECENT_UPDATE_GUARD_KEY);
     } catch {}
-    window.dispatchEvent(new CustomEvent('pwa-show-update-prompt'));
+    window.dispatchEvent(new CustomEvent('pwa-show-update-prompt', { detail: { forceTest: true } }));
   }
 }
 
 /**
- * Manually check if an update is available on server
+ * Manually check if a genuine new update is available on server
+ * 
+ * Strict check criteria:
+ * 1. Queries /api/version for static build/release identifiers.
+ * 2. Only if the server's release version or build ID explicitly differs from current app,
+ *    an update notification is prompted.
+ * 3. Never relies on dynamic timestamps or '>' size comparisons.
  */
 export async function checkForPWAUpdate(): Promise<boolean> {
-  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+  if (typeof navigator === 'undefined') {
     return false;
   }
 
   try {
-    const reg = await navigator.serviceWorker.getRegistration();
-    if (reg) {
-      await reg.update();
-      if (reg.waiting && !isRecentlyUpdated()) {
-        window.dispatchEvent(new CustomEvent('pwa-show-update-prompt'));
-        return true;
+    // 1. Strict version comparison check first
+    const strictResult = await checkServerVersionStrict();
+    if (!strictResult.hasNewRelease) {
+      // Deployed version is identical to current instance - suppress any false prompt
+      return false;
+    }
+
+    // 2. If new version confirmed on server, notify SW and prompt
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) {
+        await reg.update().catch(() => {});
       }
+    }
+
+    if (!isRecentlyUpdated()) {
+      window.dispatchEvent(new CustomEvent('pwa-show-update-prompt'));
+      return true;
     }
     return false;
   } catch (err) {
@@ -130,10 +148,10 @@ export function usePWAUpdate() {
     isChecking,
     checkForUpdate: triggerCheck,
     applyUpdate: async () => {
+      markRecentlyUpdated();
       broadcastSkipWaitingToAllWorkers().catch(() => {});
       window.location.reload();
     },
     dismissUpdate: () => {},
   };
 }
-

@@ -2,6 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Loader2, RefreshCw, X } from 'lucide-react';
+import {
+  isRecentlyUpdated,
+  markRecentlyUpdated,
+  broadcastSkipWaitingToAllWorkers,
+  cleanTestUrlParams,
+} from '../lib/pwaUpdateManager';
+import { checkServerVersionStrict, getAppReleaseVersion } from '../lib/version';
 
 interface PWAUpdatePromptProps {
   /** Optional position override: 'top' (default, matching IT Desk) or 'bottom' */
@@ -10,31 +17,24 @@ interface PWAUpdatePromptProps {
 
 /**
  * PWA Service Worker Update Notification Banner / Toast
- * Exact match with IT Desk (https://device.srider.kr/)
+ * Matches IT Desk (https://device.srider.kr/) UX & Design.
  * 
- * Key stability features:
- * 1. 15-second sessionStorage guard ('pwa_update_recently') to prevent repeated/duplicate prompts
- * 2. Instant check on document visibility change (switches back to tab/app -> immediate update detection)
- * 3. 30-minute periodic background check
- * 4. Single-reload controllerchange listener with reload guard
- * 5. Direct SKIP_WAITING message broadcast to waiting workers
- * 6. Top-center floating toast with spring animation & backdrop-blur gradient
- * 7. Test support: ?test_update=1, ?test_pwa=1, and 'pwa-show-update-prompt' event
+ * Stability Enhancements:
+ * 1. Static Build/Version Pinning:
+ *    - Compares strictly against pinned release strings and build IDs.
+ *    - Never uses dynamic Date.now() or greater-than (>) timestamp math.
+ * 2. Relaxed Polling & Focus Monitoring:
+ *    - Removed aggressive visibilitychange checks on every tab switch.
+ *    - Safe 60-minute periodic interval with strict server pre-verification.
+ * 3. Strict Version Mismatch Requirement:
+ *    - Even if Service Worker fires updatefound/waiting, it confirms with /api/version
+ *      that a genuine new release was deployed before displaying the update prompt.
+ *    - False positives are automatically suppressed.
  */
 export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'top' }) => {
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
-
-  // 15-second sessionStorage guard to prevent duplicate notifications after reload
-  const isRecentlyUpdated = (): boolean => {
-    try {
-      if (typeof window === 'undefined') return false;
-      const stored = sessionStorage.getItem('pwa_update_recently');
-      if (stored && Date.now() - parseInt(stored, 10) < 15000) {
-        return true;
-      }
-    } catch {}
-    return false;
-  };
+  const [showPrompt, setShowPrompt] = useState<boolean>(false);
+  const [newVersionLabel, setNewVersionLabel] = useState<string>('');
 
   const {
     needRefresh: [needRefresh, setNeedRefresh],
@@ -42,53 +42,90 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
   } = useRegisterSW({
     onRegisteredSW(_swUrl, registration) {
       if (registration) {
-        // Periodic background check every 30 minutes
-        const intervalId = setInterval(() => {
-          if (!isRecentlyUpdated()) {
-            registration.update().catch((err) => {
-              console.debug('Service Worker periodic check notice:', err);
-            });
+        // Safe periodic check every 60 minutes with strict version pre-check
+        const intervalId = setInterval(async () => {
+          if (isRecentlyUpdated()) return;
+          try {
+            const check = await checkServerVersionStrict();
+            if (check.hasNewRelease) {
+              await registration.update();
+            }
+          } catch (err) {
+            console.debug('[PWA] Periodic SW update check notice:', err);
           }
-        }, 30 * 60 * 1000);
+        }, 60 * 60 * 1000);
 
-        // Immediate check when user returns to app/tab (fastest response)
-        const onVisibilityChange = () => {
-          if (document.visibilityState === 'visible' && !isRecentlyUpdated()) {
-            registration.update().catch((err) => {
-              console.debug('Service Worker visibility check notice:', err);
-            });
-          }
-        };
-
-        document.addEventListener('visibilitychange', onVisibilityChange);
         return () => {
           clearInterval(intervalId);
-          document.removeEventListener('visibilitychange', onVisibilityChange);
         };
       }
     },
     onRegisterError(err) {
-      console.warn('PWA Service Worker registration error:', err);
+      console.warn('[PWA] Service Worker registration error:', err);
     },
   });
 
-  // Guard: if needRefresh is triggered but within 15s of a recent update, suppress it
+  // Strict verification whenever useRegisterSW indicates an update is waiting
   useEffect(() => {
-    if (needRefresh && isRecentlyUpdated()) {
-      setNeedRefresh(false);
-    }
-  }, [needRefresh, setNeedRefresh]);
+    let isMounted = true;
 
-  // Controllerchange: when the new service worker activates, reload safely once
+    const verifyUpdate = async () => {
+      if (!needRefresh) {
+        if (!showPrompt) {
+          setShowPrompt(false);
+        }
+        return;
+      }
+
+      if (isRecentlyUpdated()) {
+        setNeedRefresh(false);
+        setShowPrompt(false);
+        return;
+      }
+
+      // Check if user dismissed this version in current session
+      try {
+        const dismissedVer = sessionStorage.getItem('pwa_update_dismissed');
+        if (dismissedVer && dismissedVer === getAppReleaseVersion()) {
+          setNeedRefresh(false);
+          setShowPrompt(false);
+          return;
+        }
+      } catch {}
+
+      // Strict version verification with server
+      const checkResult = await checkServerVersionStrict();
+      if (!isMounted) return;
+
+      if (checkResult.hasNewRelease) {
+        setNewVersionLabel(checkResult.remoteVersion || '');
+        setShowPrompt(true);
+      } else {
+        // False positive detected: Service worker re-checked but release is identical
+        console.debug(
+          '[PWA] False positive update suppressed: Current version matches server',
+          checkResult.currentVersion
+        );
+        setNeedRefresh(false);
+        setShowPrompt(false);
+      }
+    };
+
+    verifyUpdate();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [needRefresh, setNeedRefresh, showPrompt]);
+
+  // Controllerchange: reload once safely when the new service worker activates
   useEffect(() => {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
     let hasReloaded = false;
     const onControllerChange = () => {
       if (!hasReloaded) {
         hasReloaded = true;
-        try {
-          sessionStorage.setItem('pwa_update_recently', Date.now().toString());
-        } catch {}
+        markRecentlyUpdated();
         window.location.reload();
       }
     };
@@ -99,71 +136,64 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
     };
   }, []);
 
-  // Listen for test query parameters (?test_update=1, ?test_pwa=1) and custom event
+  // Support manual tests (?test_update=1, ?test_pwa=1, or 'pwa-show-update-prompt' event)
   useEffect(() => {
     if (typeof window === 'undefined') return;
+
     const url = new URL(window.location.href);
     if (url.searchParams.get('test_update') === '1' || url.searchParams.get('test_pwa') === '1') {
       if (!isRecentlyUpdated()) {
-        setNeedRefresh(true);
+        setShowPrompt(true);
       }
     }
 
-    const onShowUpdate = () => {
-      if (!isRecentlyUpdated()) {
-        setNeedRefresh(true);
+    const handleCustomPrompt = async (e: Event) => {
+      const customEvent = e as CustomEvent<{ forceTest?: boolean }>;
+      if (customEvent?.detail?.forceTest) {
+        setShowPrompt(true);
+        return;
+      }
+
+      if (isRecentlyUpdated()) return;
+
+      const check = await checkServerVersionStrict();
+      if (check.hasNewRelease) {
+        setNewVersionLabel(check.remoteVersion || '');
+        setShowPrompt(true);
       }
     };
 
-    window.addEventListener('pwa-show-update-prompt', onShowUpdate);
+    window.addEventListener('pwa-show-update-prompt', handleCustomPrompt);
     return () => {
-      window.removeEventListener('pwa-show-update-prompt', onShowUpdate);
+      window.removeEventListener('pwa-show-update-prompt', handleCustomPrompt);
     };
-  }, [setNeedRefresh]);
+  }, []);
 
   // Apply update and reload
   const handleApplyUpdate = async () => {
     if (isUpdating) return;
     setIsUpdating(true);
 
-    // Clean test parameters from URL bar
-    try {
-      if (typeof window !== 'undefined') {
-        const url = new URL(window.location.href);
-        if (url.searchParams.has('test_update') || url.searchParams.has('test_pwa')) {
-          url.searchParams.delete('test_update');
-          url.searchParams.delete('test_pwa');
-          window.history.replaceState({}, '', url.pathname + (url.search ? url.search : '') + url.hash);
-        }
-      }
-    } catch {}
+    // Clean test query parameters from address bar
+    cleanTestUrlParams();
 
-    // Mark 15s session storage guard to prevent duplicate notifications
-    try {
-      sessionStorage.setItem('pwa_update_recently', Date.now().toString());
-    } catch {}
-
+    // Set 5-minute guard to suppress immediate re-prompting
+    markRecentlyUpdated();
+    setShowPrompt(false);
     setNeedRefresh(false);
 
     // Direct SKIP_WAITING broadcast to any waiting worker
     try {
-      if ('serviceWorker' in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (const reg of registrations) {
-          if (reg.waiting) {
-            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-          }
-        }
-      }
+      await broadcastSkipWaitingToAllWorkers();
     } catch (err) {
-      console.debug('Service worker skipWaiting direct message error:', err);
+      console.debug('[PWA] Service worker skipWaiting broadcast error:', err);
     }
 
     // Trigger updateServiceWorker
     try {
       await updateServiceWorker(true);
     } catch (err) {
-      console.debug('updateServiceWorker execution error:', err);
+      console.debug('[PWA] updateServiceWorker execution error:', err);
     }
 
     // Fallback reload if controllerchange event does not fire within 600ms
@@ -173,7 +203,12 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
   };
 
   const handleDismiss = () => {
+    setShowPrompt(false);
     setNeedRefresh(false);
+    cleanTestUrlParams();
+    try {
+      sessionStorage.setItem('pwa_update_dismissed', getAppReleaseVersion());
+    } catch {}
   };
 
   const positionClass =
@@ -183,7 +218,7 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
 
   return (
     <AnimatePresence>
-      {needRefresh && !isRecentlyUpdated() && (
+      {showPrompt && !isRecentlyUpdated() && (
         <motion.aside
           role="alert"
           aria-live="polite"
@@ -214,13 +249,13 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
                     {isUpdating ? '최신 버전 적용 중...' : '새로운 업데이트가 있습니다'}
                   </span>
                   <span className="px-1.5 py-0.2 bg-white/20 text-[10px] font-extrabold rounded text-white border border-white/30">
-                    UPDATE
+                    {newVersionLabel ? newVersionLabel : 'UPDATE'}
                   </span>
                 </div>
                 <p className="text-[11px] sm:text-xs text-blue-100/90 truncate">
                   {isUpdating
                     ? '잠시 후 페이지가 자동으로 새로고침됩니다.'
-                    : '최신 개선사항이 적용되었습니다. 지금 새로고침하세요.'}
+                    : '새로운 릴리즈가 배포되었습니다. 지금 새로고침하세요.'}
                 </p>
               </div>
             </div>
@@ -259,4 +294,3 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
     </AnimatePresence>
   );
 };
-

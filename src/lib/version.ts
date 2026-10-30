@@ -1,15 +1,18 @@
 /**
  * Application Release Version Manager
  * 
- * - In accordance with production requirements, the version is stamped at build/deployment
- *   time in Korean Standard Time (KST, UTC+9) in the format "VYYYY.MM.DD".
- * - Merely clicking the update button does NOT forge today's date dynamically;
- *   it reflects the actual deployed release version (e.g. V2026.10.28).
- * - Future builds/deployments automatically update this release date string.
+ * - The version is fixed at build/compile time in Korean Standard Time (KST, UTC+9)
+ *   in the format "VYYYY.MM.DD".
+ * - Merely clicking the update button does NOT generate today's date dynamically;
+ *   it strictly reflects the actual deployed release version (e.g. V2026.10.28).
+ * - Build timestamps and build IDs are strictly static strings, never dynamic Date.now()
+ *   computed on the fly when the instance restarts or wakes from sleep.
  */
 
-// Baseline release version for this deployment
+// Baseline static release version & build ID for this deployment
 export const STATIC_RELEASE_VERSION = 'V2026.10.28';
+export const STATIC_BUILD_ID = '2026.10.28-release';
+export const STATIC_BUILD_TIME_KST = '2026-10-28T00:00:00+09:00';
 
 /**
  * Get current application release version string
@@ -21,7 +24,124 @@ export function getAppReleaseVersion(): string {
   return STATIC_RELEASE_VERSION;
 }
 
+/**
+ * Get current application build identifier
+ */
+export function getAppBuildId(): string {
+  if (typeof __APP_BUILD_ID__ !== 'undefined' && __APP_BUILD_ID__) {
+    return __APP_BUILD_ID__;
+  }
+  return STATIC_BUILD_ID;
+}
+
+/**
+ * Get current application build time string
+ */
+export function getAppBuildTime(): string {
+  if (typeof __APP_BUILD_TIME_KST__ !== 'undefined' && __APP_BUILD_TIME_KST__) {
+    return __APP_BUILD_TIME_KST__;
+  }
+  return STATIC_BUILD_TIME_KST;
+}
+
 export const APP_RELEASE_VERSION = getAppReleaseVersion();
+export const APP_BUILD_ID = getAppBuildId();
+
+export interface ServerVersionInfo {
+  version: string;
+  buildId: string;
+  buildTime: string;
+  releaseDate: string;
+}
+
+export interface StrictVersionCheckResult {
+  hasNewRelease: boolean;
+  currentVersion: string;
+  remoteVersion: string;
+  currentBuildId: string;
+  remoteBuildId: string;
+}
+
+/**
+ * Strict server version verification:
+ * Compares deployed server version and build ID against the running app instance.
+ * 
+ * Strict rules:
+ * 1. Only returns hasNewRelease: true if remote version/buildId is non-empty and explicitly NOT equal.
+ * 2. Never uses simplistic '>' timestamp arithmetic which triggers false positives on restarts.
+ * 3. Safely handles offline or network errors by returning hasNewRelease: false.
+ */
+export async function checkServerVersionStrict(): Promise<StrictVersionCheckResult> {
+  const currentVersion = getAppReleaseVersion();
+  const currentBuildId = getAppBuildId();
+
+  if (typeof window === 'undefined') {
+    return {
+      hasNewRelease: false,
+      currentVersion,
+      remoteVersion: currentVersion,
+      currentBuildId,
+      remoteBuildId: currentBuildId,
+    };
+  }
+
+  try {
+    const response = await fetch('/api/version', {
+      method: 'GET',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        Pragma: 'no-cache',
+      },
+    });
+
+    if (!response.ok) {
+      return {
+        hasNewRelease: false,
+        currentVersion,
+        remoteVersion: currentVersion,
+        currentBuildId,
+        remoteBuildId: currentBuildId,
+      };
+    }
+
+    const data: ServerVersionInfo = await response.json();
+    const remoteVersion = (data.version || '').trim();
+    const remoteBuildId = (data.buildId || '').trim();
+
+    // If server didn't provide valid version info, do not trigger false update
+    if (!remoteVersion && !remoteBuildId) {
+      return {
+        hasNewRelease: false,
+        currentVersion,
+        remoteVersion: currentVersion,
+        currentBuildId,
+        remoteBuildId: currentBuildId,
+      };
+    }
+
+    // Strict equality check: only mismatch flags a genuine new release
+    const hasNewRelease =
+      (Boolean(remoteVersion) && remoteVersion !== currentVersion) ||
+      (Boolean(remoteBuildId) && remoteBuildId !== currentBuildId);
+
+    return {
+      hasNewRelease,
+      currentVersion,
+      remoteVersion: remoteVersion || currentVersion,
+      currentBuildId,
+      remoteBuildId: remoteBuildId || currentBuildId,
+    };
+  } catch (err) {
+    console.debug('[Version] Strict version check network bypass:', err);
+    return {
+      hasNewRelease: false,
+      currentVersion,
+      remoteVersion: currentVersion,
+      currentBuildId,
+      remoteBuildId: currentBuildId,
+    };
+  }
+}
 
 /**
  * Display a polished, floating toast when user checks for updates

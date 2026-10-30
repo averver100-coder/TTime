@@ -34,8 +34,25 @@ try {
   console.warn('[Server] Failed to initialize Firebase Firestore on server:', fbErr);
 }
 
+// Static release version and build metadata pinned at deployment
+const APP_RELEASE_VERSION = 'V2026.10.28';
+const APP_BUILD_ID = '2026.10.28-release';
+const APP_BUILD_TIME = '2026-10-28T00:00:00+09:00';
+
+app.get('/api/version', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  return res.json({
+    version: APP_RELEASE_VERSION,
+    buildId: APP_BUILD_ID,
+    buildTime: APP_BUILD_TIME,
+    releaseDate: '2026-10-28'
+  });
+});
+
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', timestamp: '2026-10-28T00:00:00+09:00' });
 });
 
 const upload = multer({
