@@ -3,6 +3,11 @@
  * Injected at build time via vite.config.ts (VITE_APP_BUILD_DATE)
  */
 
+declare const __APP_BUILD_DATE__: string | undefined;
+declare const __APP_RELEASE_VERSION__: string | undefined;
+declare const __APP_BUILD_ID__: string | undefined;
+declare const __APP_BUILD_TIME_KST__: string | undefined;
+
 export const getBuildDate = (): string => {
   if (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_APP_BUILD_DATE) {
     return (import.meta as any).env.VITE_APP_BUILD_DATE;
@@ -10,16 +15,27 @@ export const getBuildDate = (): string => {
   if (typeof __APP_BUILD_DATE__ !== 'undefined' && __APP_BUILD_DATE__) {
     return __APP_BUILD_DATE__;
   }
-  return '2026.10.28';
+  return '2026.10.31';
 };
 
 export const getAppReleaseVersion = (): string => {
+  if (typeof __APP_RELEASE_VERSION__ !== 'undefined' && __APP_RELEASE_VERSION__) {
+    return __APP_RELEASE_VERSION__;
+  }
   const dateStr = getBuildDate();
   return `V${dateStr}`;
 };
 
+export const getBuildId = (): string => {
+  if (typeof __APP_BUILD_ID__ !== 'undefined' && __APP_BUILD_ID__) {
+    return __APP_BUILD_ID__;
+  }
+  return `${getBuildDate()}-static`;
+};
+
 export const APP_BUILD_DATE = getBuildDate();
 export const APP_RELEASE_VERSION = getAppReleaseVersion();
+export const APP_BUILD_ID = getBuildId();
 
 export interface ServerVersionInfo {
   version: string;
@@ -42,7 +58,7 @@ export interface StrictVersionCheckResult {
  */
 export async function checkServerVersionStrict(): Promise<StrictVersionCheckResult> {
   const currentVersion = getAppReleaseVersion();
-  const currentBuildId = `${getBuildDate()}-release`;
+  const currentBuildId = getBuildId();
 
   if (typeof window === 'undefined') {
     return {
@@ -55,15 +71,26 @@ export async function checkServerVersionStrict(): Promise<StrictVersionCheckResu
   }
 
   try {
+    let data: ServerVersionInfo | null = null;
     const response = await fetch('/api/version', {
       method: 'GET',
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         Pragma: 'no-cache',
       },
-    });
+    }).catch(() => null);
 
-    if (!response.ok) {
+    if (response && response.ok) {
+      data = await response.json();
+    } else {
+      // Fallback to static /version.json
+      const jsonRes = await fetch(`/version.json?_t=${Date.now()}`).catch(() => null);
+      if (jsonRes && jsonRes.ok) {
+        data = await jsonRes.json();
+      }
+    }
+
+    if (!data) {
       return {
         hasNewRelease: false,
         currentVersion,
@@ -73,7 +100,6 @@ export async function checkServerVersionStrict(): Promise<StrictVersionCheckResu
       };
     }
 
-    const data: ServerVersionInfo = await response.json();
     const remoteVersion = (data.version || '').trim();
     const remoteBuildId = (data.buildId || '').trim();
 
@@ -88,8 +114,8 @@ export async function checkServerVersionStrict(): Promise<StrictVersionCheckResu
     }
 
     const hasNewRelease =
-      (Boolean(remoteVersion) && remoteVersion !== currentVersion) ||
-      (Boolean(remoteBuildId) && remoteBuildId !== currentBuildId);
+      (Boolean(remoteBuildId) && remoteBuildId !== currentBuildId) ||
+      (Boolean(remoteVersion) && remoteVersion !== currentVersion);
 
     return {
       hasNewRelease,

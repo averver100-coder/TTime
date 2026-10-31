@@ -103,29 +103,36 @@ export async function checkForPWAUpdate(): Promise<boolean> {
   }
 
   try {
-    // 1. Strict version comparison check first
-    const strictResult = await checkServerVersionStrict();
-    if (!strictResult.hasNewRelease) {
-      // Deployed version is identical to current instance - suppress any false prompt
-      return false;
-    }
-
-    // 2. If new version confirmed on server, notify SW and prompt
+    // 1. Check Service Worker registration and trigger update check
     if ('serviceWorker' in navigator) {
       const reg = await navigator.serviceWorker.getRegistration();
       if (reg) {
         await reg.update().catch(() => {});
+        if (reg.waiting) {
+          const strict = await checkServerVersionStrict().catch(() => null);
+          window.dispatchEvent(
+            new CustomEvent('pwa-show-update-prompt', {
+              detail: { remoteVersion: strict?.remoteVersion || '' },
+            })
+          );
+          return true;
+        }
       }
     }
 
-    if (!isRecentlyUpdated()) {
-      window.dispatchEvent(
-        new CustomEvent('pwa-show-update-prompt', {
-          detail: { remoteVersion: strictResult.remoteVersion },
-        })
-      );
-      return true;
+    // 2. Strict version comparison check against server
+    const strictResult = await checkServerVersionStrict();
+    if (strictResult.hasNewRelease) {
+      if (!isRecentlyUpdated()) {
+        window.dispatchEvent(
+          new CustomEvent('pwa-show-update-prompt', {
+            detail: { remoteVersion: strictResult.remoteVersion },
+          })
+        );
+        return true;
+      }
     }
+
     return false;
   } catch (err) {
     console.debug('[PWA] Error checking for SW update:', err);

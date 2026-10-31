@@ -79,7 +79,7 @@ const getKSTDateString = (): string => {
     day: '2-digit',
   });
   const parts = kstFormatter.formatToParts(now);
-  let year = '2026', month = '10', day = '29';
+  let year = '2026', month = '10', day = '31';
   for (const p of parts) {
     if (p.type === 'year') year = p.value;
     if (p.type === 'month') month = p.value;
@@ -88,18 +88,41 @@ const getKSTDateString = (): string => {
   return `${year}.${month}.${day}`;
 };
 
+const ensureVersionFile = () => {
+  const publicDir = path.resolve(__dirname, 'public');
+  if (!fs.existsSync(publicDir)) {
+    fs.mkdirSync(publicDir, { recursive: true });
+  }
+  const versionFilePath = path.resolve(publicDir, 'version.json');
+  const dateStr = getKSTDateString();
+  const releaseVersion = `V${dateStr}`;
+  // Unique build ID generated once per build/compile execution
+  const buildId = `${dateStr}-${Date.now().toString(36)}`;
+  const buildTime = new Date().toISOString();
+  const info = {
+    version: releaseVersion,
+    buildId,
+    buildTime,
+    releaseDate: dateStr,
+  };
+  try {
+    fs.writeFileSync(versionFilePath, JSON.stringify(info, null, 2), 'utf-8');
+  } catch (err) {
+    console.debug('[Vite] Could not write public/version.json:', err);
+  }
+  return info;
+};
+
 export default defineConfig(() => {
-  const buildDate = getKSTDateString();
-  const releaseVersion = `V${buildDate}`;
-  const buildId = `${buildDate}-release`;
+  const versionInfo = ensureVersionFile();
 
   return {
     define: {
-      'import.meta.env.VITE_APP_BUILD_DATE': JSON.stringify(buildDate),
-      __APP_BUILD_DATE__: JSON.stringify(buildDate),
-      __APP_RELEASE_VERSION__: JSON.stringify(releaseVersion),
-      __APP_BUILD_ID__: JSON.stringify(buildId),
-      __APP_BUILD_TIME_KST__: JSON.stringify(new Date().toISOString()),
+      'import.meta.env.VITE_APP_BUILD_DATE': JSON.stringify(versionInfo.releaseDate),
+      __APP_BUILD_DATE__: JSON.stringify(versionInfo.releaseDate),
+      __APP_RELEASE_VERSION__: JSON.stringify(versionInfo.version),
+      __APP_BUILD_ID__: JSON.stringify(versionInfo.buildId),
+      __APP_BUILD_TIME_KST__: JSON.stringify(versionInfo.buildTime),
     },
     plugins: [
       react(), 

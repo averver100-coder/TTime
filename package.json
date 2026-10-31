@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "VITE_APP_BUILD_DATE=$(node -e \"const d=new Date(); const p=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d); let y='2026',m='10',day='29'; for(const x of p){if(x.type==='year')y=x.value;if(x.type==='month')m=x.value;if(x.type==='day')day=x.value;} console.log(y+'.'+m+'.'+day);\") vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "VITE_APP_BUILD_DATE=$(node -e \"const d=new Date(); const p=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d); let y='2026',m='10',day='31'; for(const x of p){if(x.type==='year')y=x.value;if(x.type==='month')m=x.value;if(x.type==='day')day=x.value;} console.log(y+'.'+m+'.'+day);\") vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

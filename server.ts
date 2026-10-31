@@ -47,7 +47,7 @@ const getKSTDateString = (): string => {
     day: '2-digit',
   });
   const parts = kstFormatter.formatToParts(now);
-  let year = '2026', month = '10', day = '29';
+  let year = '2026', month = '10', day = '31';
   for (const p of parts) {
     if (p.type === 'year') year = p.value;
     if (p.type === 'month') month = p.value;
@@ -56,21 +56,35 @@ const getKSTDateString = (): string => {
   return `${year}.${month}.${day}`;
 };
 
-const buildDate = getKSTDateString();
-const APP_RELEASE_VERSION = `V${buildDate}`;
-const APP_BUILD_ID = `${buildDate}-release`;
-const APP_BUILD_TIME = new Date().toISOString();
+const getVersionInfo = () => {
+  try {
+    const versionPath = path.join(process.cwd(), 'public', 'version.json');
+    if (fs.existsSync(versionPath)) {
+      return JSON.parse(fs.readFileSync(versionPath, 'utf-8'));
+    }
+    const distVersionPath = path.join(process.cwd(), 'dist', 'version.json');
+    if (fs.existsSync(distVersionPath)) {
+      return JSON.parse(fs.readFileSync(distVersionPath, 'utf-8'));
+    }
+  } catch (e) {
+    console.debug('[Server] Error reading version.json:', e);
+  }
+  const date = getKSTDateString();
+  return {
+    version: `V${date}`,
+    buildId: `${date}-static`,
+    buildTime: new Date().toISOString(),
+    releaseDate: date,
+  };
+};
+
+const serverVersionInfo = getVersionInfo();
 
 app.get('/api/version', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
-  return res.json({
-    version: APP_RELEASE_VERSION,
-    buildId: APP_BUILD_ID,
-    buildTime: APP_BUILD_TIME,
-    releaseDate: buildDate
-  });
+  return res.json(serverVersionInfo);
 });
 
 app.get('/api/health', (req, res) => {
