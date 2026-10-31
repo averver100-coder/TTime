@@ -148,13 +148,20 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
     }
 
     const handleCustomPrompt = async (e: Event) => {
-      const customEvent = e as CustomEvent<{ forceTest?: boolean }>;
+      const customEvent = e as CustomEvent<{ forceTest?: boolean; remoteVersion?: string }>;
       if (customEvent?.detail?.forceTest) {
+        setNewVersionLabel('V2026.10.31');
         setShowPrompt(true);
         return;
       }
 
       if (isRecentlyUpdated()) return;
+
+      if (customEvent?.detail?.remoteVersion) {
+        setNewVersionLabel(customEvent.detail.remoteVersion);
+        setShowPrompt(true);
+        return;
+      }
 
       const check = await checkServerVersionStrict();
       if (check.hasNewRelease) {
@@ -246,10 +253,9 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm tracking-tight truncate text-white">
-                    {isUpdating ? '최신 버전 적용 중...' : '새로운 업데이트가 있습니다'}
-                  </span>
-                  <span className="px-1.5 py-0.2 bg-white/20 text-[10px] font-extrabold rounded text-white border border-white/30">
-                    {newVersionLabel ? newVersionLabel : 'UPDATE'}
+                    {isUpdating
+                      ? '최신 버전 적용 중...'
+                      : `새로운 업데이트가 있습니다. (${newVersionLabel || getAppReleaseVersion()})`}
                   </span>
                 </div>
                 <p className="text-[11px] sm:text-xs text-blue-100/90 truncate">

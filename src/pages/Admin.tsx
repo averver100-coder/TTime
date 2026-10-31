@@ -96,7 +96,10 @@ export const Admin: React.FC = () => {
     const hasUpdate = await checkForUpdate();
     if (!hasUpdate) {
       setUpdateCheckToast(`최신 (${releaseVer})`);
-      showVersionToast(releaseVer);
+      showVersionToast(releaseVer, false);
+      setTimeout(() => setUpdateCheckToast(null), 3500);
+    } else {
+      setUpdateCheckToast('업데이트 발견');
       setTimeout(() => setUpdateCheckToast(null), 3500);
     }
   };

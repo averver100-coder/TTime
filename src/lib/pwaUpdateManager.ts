@@ -119,7 +119,11 @@ export async function checkForPWAUpdate(): Promise<boolean> {
     }
 
     if (!isRecentlyUpdated()) {
-      window.dispatchEvent(new CustomEvent('pwa-show-update-prompt'));
+      window.dispatchEvent(
+        new CustomEvent('pwa-show-update-prompt', {
+          detail: { remoteVersion: strictResult.remoteVersion },
+        })
+      );
       return true;
     }
     return false;

@@ -14,7 +14,10 @@ export const Footer: React.FC = () => {
     const hasUpdate = await checkForUpdate();
     if (!hasUpdate) {
       setCheckedMsg(`최신 (${releaseVer})`);
-      showVersionToast(releaseVer);
+      showVersionToast(releaseVer, false);
+      setTimeout(() => setCheckedMsg(null), 3500);
+    } else {
+      setCheckedMsg('업데이트 발견');
       setTimeout(() => setCheckedMsg(null), 3500);
     }
   };

@@ -113,7 +113,10 @@ export async function checkServerVersionStrict(): Promise<StrictVersionCheckResu
 /**
  * Display a polished, floating toast when user checks for updates
  */
-export function showVersionToast(version: string = getAppReleaseVersion()): void {
+export function showVersionToast(
+  version: string = getAppReleaseVersion(),
+  hasUpdate: boolean = false
+): void {
   if (typeof document === 'undefined') return;
 
   const existingToast = document.getElementById('ssamtime-version-toast');
@@ -127,10 +130,17 @@ export function showVersionToast(version: string = getAppReleaseVersion()): void
   toast.style.opacity = '0';
   toast.style.transform = 'translateX(-50%) translateY(-12px)';
 
-  toast.innerHTML = `
-    <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
-    <span class="tracking-tight">최신 버전 (<strong class="text-emerald-300 font-bold">${version}</strong>)입니다. 이미 최종 버전을 사용 중입니다.</span>
-  `;
+  if (hasUpdate) {
+    toast.innerHTML = `
+      <span class="w-2.5 h-2.5 rounded-full bg-blue-400 animate-ping shrink-0"></span>
+      <span class="tracking-tight">새로운 업데이트가 있습니다. (<strong class="text-blue-300 font-bold">${version}</strong>)</span>
+    `;
+  } else {
+    toast.innerHTML = `
+      <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+      <span class="tracking-tight">최신 버전을 사용 중입니다.(<strong class="text-emerald-300 font-bold">${version}</strong>)</span>
+    `;
+  }
 
   document.body.appendChild(toast);
 
