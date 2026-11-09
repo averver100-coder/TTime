@@ -88,16 +88,26 @@ const getKSTDateString = (): string => {
   return `${year}.${month}.${day}`;
 };
 
-const ensureVersionFile = () => {
+const ensureVersionFile = (isBuild: boolean) => {
   const publicDir = path.resolve(__dirname, 'public');
   if (!fs.existsSync(publicDir)) {
     fs.mkdirSync(publicDir, { recursive: true });
   }
   const versionFilePath = path.resolve(publicDir, 'version.json');
+
+  // In dev/serve mode, reuse existing version.json if present so restarts never cause a buildId mismatch
+  if (!isBuild && fs.existsSync(versionFilePath)) {
+    try {
+      const existing = JSON.parse(fs.readFileSync(versionFilePath, 'utf-8'));
+      if (existing && existing.version && existing.buildId && existing.releaseDate) {
+        return existing;
+      }
+    } catch {}
+  }
+
   const dateStr = getKSTDateString();
   const releaseVersion = `V${dateStr}`;
-  // Unique build ID generated once per build/compile execution
-  const buildId = `${dateStr}-${Date.now().toString(36)}`;
+  const buildId = `${dateStr}-release`;
   const buildTime = new Date().toISOString();
   const info = {
     version: releaseVersion,
@@ -113,8 +123,8 @@ const ensureVersionFile = () => {
   return info;
 };
 
-export default defineConfig(() => {
-  const versionInfo = ensureVersionFile();
+export default defineConfig(({ command }) => {
+  const versionInfo = ensureVersionFile(command === 'build');
 
   return {
     define: {

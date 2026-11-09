@@ -254,6 +254,7 @@ export const Admin: React.FC = () => {
   const [showAddTeacherModal, setShowAddTeacherModal] = useState(false);
   const [newTeacherName, setNewTeacherName] = useState('');
   const [newTeacherHomeroom, setNewTeacherHomeroom] = useState('');
+  const [newTeacherSubject, setNewTeacherSubject] = useState('');
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
   const [teacherSearchTerm, setTeacherSearchTerm] = useState('');
 
@@ -295,6 +296,7 @@ export const Admin: React.FC = () => {
     return sorted.filter(t => {
       const nameLower = t.name.toLowerCase();
       const homeroomLower = (t.homeroom || '').toLowerCase();
+      const subjectLower = (t.subject || '').toLowerCase();
 
       if (isChosungQuery) {
         const nameChosung = getChosung(t.name);
@@ -303,6 +305,7 @@ export const Admin: React.FC = () => {
 
       return (
         nameLower.includes(trimmed) ||
+        subjectLower.includes(trimmed) ||
         homeroomLower.includes(trimmed) ||
         `${homeroomLower}반`.includes(trimmed)
       );
@@ -441,10 +444,14 @@ export const Admin: React.FC = () => {
         throw new Error('분석된 시간표 데이터가 없습니다.');
       }
 
+      const existingSubjectMap = new Map<string, string>(
+        teachers.map(t => [t.name, t.subject || ''])
+      );
       const teachersWithIds: Teacher[] = parsedTeachers.map((t: any) => ({
         id: t.name,
         name: t.name,
         homeroom: t.homeroom || '',
+        subject: t.subject || existingSubjectMap.get(t.name) || '',
         timetable: t.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} }
       }));
 
@@ -494,6 +501,7 @@ export const Admin: React.FC = () => {
       id: trimmed,
       name: trimmed,
       homeroom: newTeacherHomeroom.trim(),
+      subject: newTeacherSubject.trim(),
       timetable: { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} }
     };
 
@@ -504,6 +512,7 @@ export const Admin: React.FC = () => {
       setTeachers(prev => [...prev, newTeacher].sort((a, b) => a.name.localeCompare(b.name, 'ko')));
       setNewTeacherName('');
       setNewTeacherHomeroom('');
+      setNewTeacherSubject('');
       setShowAddTeacherModal(false);
 
       // Audit Log
@@ -512,7 +521,7 @@ export const Admin: React.FC = () => {
         operatorName: currentUser?.name || '관리자',
         action: '새 선생님 추가',
         target: `${trimmed} 선생님`,
-        summary: `교원 [${trimmed}] (담임: ${newTeacherHomeroom ? `${newTeacherHomeroom}반` : '담임 없음'}) 신규 등록`,
+        summary: `교원 [${trimmed}] (과목: ${newTeacher.subject || '미입력'}, 담임: ${newTeacherHomeroom ? `${newTeacherHomeroom}반` : '담임 없음'}) 신규 등록`,
         category: 'teacher'
       }).catch(() => {});
 
@@ -538,17 +547,34 @@ export const Admin: React.FC = () => {
         operatorName: currentUser?.name || '관리자',
         action: '선생님 시간표 직접 수정',
         target: `${editingTeacher.name} 선생님`,
-        summary: `${editingTeacher.name} 선생님의 주간 수업시간표(담임: ${editingTeacher.homeroom || '없음'}) 직접 편집 저장 완료`,
+        summary: `${editingTeacher.name} 선생님의 정보(과목: ${editingTeacher.subject || '미입력'}, 담임: ${editingTeacher.homeroom || '없음'}) 및 주간 수업시간표 직접 편집 저장 완료`,
         category: 'teacher'
       }).catch(() => {});
 
       setEditingTeacher(null);
-      setMessage(`선생님 "${editingTeacher.name}"의 시간표가 안전하게 저장되었습니다.`);
-      window.alert(`선생님 "${editingTeacher.name}"의 시간표가 안전하게 저장되었습니다.`);
+      setMessage(`선생님 "${editingTeacher.name}"의 정보 및 시간표가 안전하게 저장되었습니다.`);
+      window.alert(`선생님 "${editingTeacher.name}"의 정보 및 시간표가 안전하게 저장되었습니다.`);
     } catch (err) {
       setMessage('시간표 저장 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleQuickSaveSubject = async (teacher: Teacher, newSubject: string) => {
+    const trimmedSubj = newSubject.trim();
+    if ((teacher.subject || '') === trimmedSubj) return;
+    const updatedTeacher: Teacher = {
+      ...teacher,
+      subject: trimmedSubj,
+    };
+    setTeachers(prev => prev.map(t => t.name === teacher.name ? updatedTeacher : t));
+    try {
+      await saveSingleTeacher(updatedTeacher);
+      setMessage(`${teacher.name} 선생님의 담당 과목(${trimmedSubj || '미지정'})이 저장되었습니다.`);
+    } catch (err) {
+      console.error('Failed saving teacher subject:', err);
+      setMessage('담당 과목 저장 중 오류가 발생했습니다.');
     }
   };
 
@@ -1637,7 +1663,7 @@ export const Admin: React.FC = () => {
                         setEditingTeacher(JSON.parse(JSON.stringify(filteredTeachers[0])));
                       }
                     }}
-                    placeholder="선생님 성함 또는 담임 학급 검색 (예: 김선생, ㄱㅅㅅ, 1-1, 102)"
+                    placeholder="선생님 성함, 담당 과목 또는 담임 학급 검색 (예: 김선생, 국어, ㄱㅅㅅ, 1-1)"
                     className="w-full pl-10 pr-24 py-2.5 bg-gray-50 hover:bg-white focus:bg-white border border-gray-200 focus:border-blue-500 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 outline-none transition placeholder:text-gray-400"
                   />
                   <div className="absolute right-2.5 flex items-center gap-1.5">
@@ -1702,6 +1728,7 @@ export const Admin: React.FC = () => {
                   <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10 shadow-2xs">
                     <tr>
                       <th className="py-3 px-4 font-semibold text-gray-700">선생님 성함</th>
+                      <th className="py-3 px-4 font-semibold text-gray-700">담당 과목</th>
                       <th className="py-3 px-4 font-semibold text-gray-700">담임 학급</th>
                       <th className="py-3 px-4 font-semibold text-gray-700">수업 시수</th>
                       <th className="py-3 px-4 font-semibold text-gray-700 text-right">관리</th>
@@ -1719,6 +1746,27 @@ export const Admin: React.FC = () => {
                             <div>
                               <div className="font-bold text-gray-900">{t.name}</div>
                             </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <input
+                              type="text"
+                              defaultValue={t.subject || ''}
+                              key={`${t.name}-${t.subject || ''}`}
+                              onBlur={(e) => handleQuickSaveSubject(t, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
+                              placeholder="과목 입력 (예: 수학)"
+                              className={`w-32 sm:w-36 px-2.5 py-1 text-xs rounded-lg outline-none focus:ring-2 focus:ring-red-500/30 transition placeholder:text-gray-400 ${
+                                t.subject?.trim()
+                                  ? 'font-bold bg-red-50/90 hover:bg-white focus:bg-white border-2 border-red-300 focus:border-red-500 text-red-800'
+                                  : 'font-medium bg-gray-50 hover:bg-white focus:bg-white border border-gray-300 focus:border-red-500 text-gray-800'
+                              }`}
+                              title="과목 입력 후 Enter 또는 포커스 이동 시 자동 저장됩니다"
+                            />
                           </td>
                           <td className="py-3 px-4 text-gray-600">
                             {t.homeroom ? (
@@ -1745,7 +1793,7 @@ export const Admin: React.FC = () => {
                               type="button"
                               onClick={() => setEditingTeacher(JSON.parse(JSON.stringify(t)))}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white rounded-lg text-xs font-bold transition shadow-2xs"
-                              title={`${t.name} 선생님 시간표 입력 및 수정`}
+                              title={`${t.name} 선생님 과목 및 시간표 입력/수정`}
                             >
                               <Edit3 className="w-3.5 h-3.5" /> 시간표 입력/수정
                             </button>
@@ -1868,6 +1916,16 @@ export const Admin: React.FC = () => {
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">담당 과목 (선택)</label>
+                <input
+                  type="text"
+                  value={newTeacherSubject}
+                  onChange={(e) => setNewTeacherSubject(e.target.value)}
+                  placeholder="예: 국어, 수학, 통합과학"
+                  className="w-full px-3.5 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">담당 담임 학급 (선택)</label>
                 <input
                   type="text"
@@ -1938,16 +1996,28 @@ export const Admin: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex items-center gap-4 bg-blue-50/60 p-3 rounded-xl border border-blue-100/60">
-              <label className="text-sm font-semibold text-gray-700">담임 학급:</label>
-              <input
-                type="text"
-                value={editingTeacher.homeroom || ''}
-                onChange={(e) => setEditingTeacher({ ...editingTeacher, homeroom: e.target.value })}
-                placeholder="예: 1-1"
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500 w-32 font-medium"
-              />
-              <span className="text-xs text-gray-500">담임이 아닐 경우 비워두세요.</span>
+            <div className="flex flex-wrap items-center gap-4 bg-blue-50/60 p-3.5 rounded-xl border border-blue-100/60">
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-semibold text-gray-700 shrink-0">담당 과목:</label>
+                <input
+                  type="text"
+                  value={editingTeacher.subject || ''}
+                  onChange={(e) => setEditingTeacher({ ...editingTeacher, subject: e.target.value })}
+                  placeholder="예: 국어, 수학, 통합과학"
+                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500 w-44 font-medium"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-semibold text-gray-700 shrink-0">담임 학급:</label>
+                <input
+                  type="text"
+                  value={editingTeacher.homeroom || ''}
+                  onChange={(e) => setEditingTeacher({ ...editingTeacher, homeroom: e.target.value })}
+                  placeholder="예: 1-1"
+                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500 w-32 font-medium"
+                />
+                <span className="text-xs text-gray-500">담임이 아닐 경우 비워두세요.</span>
+              </div>
             </div>
 
             {/* Timetable Grid Editor */}

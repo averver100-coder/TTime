@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { checkServerVersionStrict } from './version';
+import { checkServerVersionStrict, getBuildId } from './version';
 
 const RECENT_UPDATE_GUARD_KEY = 'pwa_update_recently';
-const GUARD_DURATION_MS = 5 * 60 * 1000; // 5 minutes guard after applying update
+const ACK_BUILD_ID_KEY = 'pwa_ack_build_id';
+const GUARD_DURATION_MS = 5 * 60 * 1000; // 5 minutes strict guard after applying update
 
 /**
- * Check if the page was refreshed for an update within the last 5 minutes
+ * Unconditionally check if the page was refreshed for an update within the last 5 minutes.
+ * Never bypasses this cooldown, preventing any possibility of an infinite reload loop.
  */
 export function isRecentlyUpdated(): boolean {
   if (typeof window === 'undefined') return false;
@@ -21,12 +23,31 @@ export function isRecentlyUpdated(): boolean {
 }
 
 /**
- * Record update timestamp in sessionStorage to suppress re-prompting for 5 minutes
+ * Check if a specific buildId was already applied or dismissed
  */
-export function markRecentlyUpdated(): void {
+export function isBuildAcknowledged(targetBuildId?: string): boolean {
+  if (!targetBuildId || typeof window === 'undefined') return false;
+  try {
+    const sessionAck = sessionStorage.getItem(ACK_BUILD_ID_KEY);
+    const localAck = localStorage.getItem(ACK_BUILD_ID_KEY);
+    return sessionAck === targetBuildId || localAck === targetBuildId;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Record update timestamp and acknowledged buildId to suppress re-prompting and loops
+ */
+export function markRecentlyUpdated(appliedBuildId?: string): void {
   if (typeof window === 'undefined') return;
   try {
     sessionStorage.setItem(RECENT_UPDATE_GUARD_KEY, Date.now().toString());
+    const idToStore = appliedBuildId || getBuildId();
+    if (idToStore) {
+      sessionStorage.setItem(ACK_BUILD_ID_KEY, idToStore);
+      localStorage.setItem(ACK_BUILD_ID_KEY, idToStore);
+    }
   } catch (e) {
     console.debug('[PWA] Failed to record recent update timestamp:', e);
   }
@@ -68,6 +89,7 @@ export async function broadcastSkipWaitingToAllWorkers(): Promise<void> {
     const registrations = await navigator.serviceWorker.getRegistrations();
     for (const reg of registrations) {
       if (reg.waiting) {
+        console.log('[PWA] Broadcasting SKIP_WAITING to waiting worker');
         reg.waiting.postMessage({ type: 'SKIP_WAITING' });
       }
     }
@@ -83,19 +105,16 @@ export function simulatePWAUpdateForTest(): void {
   if (typeof window !== 'undefined') {
     try {
       sessionStorage.removeItem(RECENT_UPDATE_GUARD_KEY);
+      sessionStorage.removeItem(ACK_BUILD_ID_KEY);
+      sessionStorage.removeItem('pwa_update_dismissed_build_id');
     } catch {}
+    console.log('[PWA] Simulating update prompt for test');
     window.dispatchEvent(new CustomEvent('pwa-show-update-prompt', { detail: { forceTest: true } }));
   }
 }
 
 /**
- * Manually check if a genuine new update is available on server
- * 
- * Strict check criteria:
- * 1. Queries /api/version for static build/release identifiers.
- * 2. Only if the server's release version or build ID explicitly differs from current app,
- *    an update notification is prompted.
- * 3. Never relies on dynamic timestamps or '>' size comparisons.
+ * Manually check if a genuine new update is available on server or waiting in SW
  */
 export async function checkForPWAUpdate(): Promise<boolean> {
   if (typeof navigator === 'undefined') {
@@ -103,6 +122,8 @@ export async function checkForPWAUpdate(): Promise<boolean> {
   }
 
   try {
+    console.log('[PWA] Manual update check initiated...');
+
     // 1. Check Service Worker registration and trigger update check
     if ('serviceWorker' in navigator) {
       const reg = await navigator.serviceWorker.getRegistration();
@@ -110,9 +131,16 @@ export async function checkForPWAUpdate(): Promise<boolean> {
         await reg.update().catch(() => {});
         if (reg.waiting) {
           const strict = await checkServerVersionStrict().catch(() => null);
+          console.log('[PWA] Manual check found waiting Service Worker:', {
+            remoteVersion: strict?.remoteVersion,
+            remoteBuildId: strict?.remoteBuildId,
+          });
           window.dispatchEvent(
             new CustomEvent('pwa-show-update-prompt', {
-              detail: { remoteVersion: strict?.remoteVersion || '' },
+              detail: {
+                remoteVersion: strict?.remoteVersion || '',
+                remoteBuildId: strict?.remoteBuildId || '',
+              },
             })
           );
           return true;
@@ -122,15 +150,18 @@ export async function checkForPWAUpdate(): Promise<boolean> {
 
     // 2. Strict version comparison check against server
     const strictResult = await checkServerVersionStrict();
-    if (strictResult.hasNewRelease) {
-      if (!isRecentlyUpdated()) {
-        window.dispatchEvent(
-          new CustomEvent('pwa-show-update-prompt', {
-            detail: { remoteVersion: strictResult.remoteVersion },
-          })
-        );
-        return true;
-      }
+    console.log('[PWA] Manual check server version comparison:', strictResult);
+
+    if (strictResult.hasNewRelease && !isBuildAcknowledged(strictResult.remoteBuildId)) {
+      window.dispatchEvent(
+        new CustomEvent('pwa-show-update-prompt', {
+          detail: {
+            remoteVersion: strictResult.remoteVersion,
+            remoteBuildId: strictResult.remoteBuildId,
+          },
+        })
+      );
+      return true;
     }
 
     return false;

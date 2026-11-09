@@ -18,9 +18,7 @@ import {
   GraduationCap,
   Bell,
   BellRing,
-  WifiOff,
-  Download,
-  Loader2
+  WifiOff
 } from 'lucide-react';
 import { PWAInstallButton, PWAInstallTopBanner } from '../components/PWAInstallButton';
 import { SchoolLogo } from '../components/SchoolLogo';
@@ -31,7 +29,6 @@ import { ClassTimetableCard } from '../components/ClassTimetableCard';
 import { BookmarkSection } from '../components/BookmarkSection';
 import { TodayScheduleNotificationToast } from '../components/TodayScheduleNotificationToast';
 import { useBookmarks } from '../hooks/useBookmarks';
-import { exportElementAsPng } from '../lib/exportImage';
 import { fetchTeachers, getDefaultTeachers, fetchClassTimetables, getDefaultClassTimetables } from '../lib/store';
 import { usePushPopupConfig } from '../lib/pushConfigStore';
 import { getKSTDate } from '../lib/gateDutyStore';
@@ -75,27 +72,8 @@ export const Home: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isTodayNotificationOpen, setIsTodayNotificationOpen] = useState(false);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
-  const [isExportingTeacher, setIsExportingTeacher] = useState(false);
-  const teacherCardRef = useRef<HTMLDivElement>(null);
-
   // Admin-controlled push popup configuration
   const { showPushPopup, loading: isPushConfigLoading } = usePushPopupConfig();
-
-  const handleExportTeacherTimetable = async () => {
-    if (!teacherCardRef.current || !selectedTeacher || isExportingTeacher) return;
-    try {
-      setIsExportingTeacher(true);
-      await exportElementAsPng(teacherCardRef.current, {
-        filename: `${selectedTeacher.name}선생님_시간표`,
-        backgroundColor: '#ffffff'
-      });
-    } catch (err) {
-      console.error('Failed to export teacher timetable:', err);
-      alert('시간표 이미지 저장 중 오류가 발생했습니다.');
-    } finally {
-      setIsExportingTeacher(false);
-    }
-  };
 
   // Auto show today's schedule notification on app startup ONLY if enabled by admin
   useEffect(() => {
@@ -181,6 +159,19 @@ export const Home: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (selectedTeacher) {
+      const updated = teachers.find(t => t.name === selectedTeacher.name);
+      if (
+        updated &&
+        (updated.subject !== selectedTeacher.subject ||
+          updated.homeroom !== selectedTeacher.homeroom)
+      ) {
+        setSelectedTeacher(updated);
+      }
+    }
+  }, [teachers, selectedTeacher]);
+
+  useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
@@ -264,6 +255,7 @@ export const Home: React.FC = () => {
         }
 
         const nameMatches = matchKorean(t.name, trimmed);
+        const subjectMatches = t.subject ? matchKorean(t.subject, trimmed) : false;
         const homeroomMatches = (() => {
           if (!t.homeroom) return false;
           const hr = t.homeroom.toLowerCase();
@@ -273,7 +265,7 @@ export const Home: React.FC = () => {
           if (hrClean === trimmedClean || `${hrClean}반` === trimmedClean) return true;
           return false;
         })();
-        return nameMatches || homeroomMatches;
+        return nameMatches || subjectMatches || homeroomMatches;
       })
       .sort((a, b) => {
         // 1. Exact name match
@@ -1514,7 +1506,7 @@ export const Home: React.FC = () => {
 
         {/* Selected Teacher Details & Timetable */}
         {selectedTeacher ? (
-          <div ref={teacherCardRef} className="animate-in fade-in slide-in-from-bottom-2 duration-200 space-y-4">
+          <div className="animate-in fade-in slide-in-from-bottom-2 duration-200 space-y-4">
             {/* Teacher Header Bar */}
             <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1546,20 +1538,13 @@ export const Home: React.FC = () => {
                       <span>오늘 알림</span>
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={handleExportTeacherTimetable}
-                    disabled={isExportingTeacher}
-                    className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-700 bg-gray-50 hover:bg-gray-100 px-3.5 py-2 rounded-xl border border-gray-200 transition shadow-2xs active:scale-95 disabled:opacity-50 cursor-pointer"
-                    title="선생님 시간표 이미지로 저장"
+                  <div
+                    className="inline-flex items-center gap-1.5 text-xs font-extrabold text-red-800 bg-red-100 px-3.5 py-2 rounded-xl border-2 border-red-400 shadow-xs"
+                    title="담당 과목"
                   >
-                    {isExportingTeacher ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-gray-600" />
-                    ) : (
-                      <Download className="w-4 h-4 text-gray-600" />
-                    )}
-                    <span>이미지 저장</span>
-                  </button>
+                    <BookOpen className="w-4 h-4 text-red-600 stroke-[2.5] shrink-0" />
+                    <span>{selectedTeacher.subject?.trim() ? selectedTeacher.subject.trim() : '과목 미지정'}</span>
+                  </div>
                   <button
                     type="button"
                     onClick={() => handleToggleTeacherBookmark(selectedTeacher)}
@@ -1576,21 +1561,11 @@ export const Home: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleClear}
-                    className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 px-3.5 py-2 rounded-xl border border-blue-200 transition shadow-2xs active:scale-95"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 px-3.5 py-2 rounded-xl border border-blue-200 transition shadow-2xs active:scale-95 cursor-pointer"
                     title="첫화면으로 이동"
                   >
                     <HomeIcon className="w-4 h-4 text-blue-600" />
                     <span>홈으로</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQuery('');
-                      searchInputRef.current?.focus();
-                    }}
-                    className="text-xs font-semibold text-gray-500 hover:text-gray-800 bg-gray-50 hover:bg-gray-100 px-3 py-2 rounded-xl border border-gray-200 transition"
-                  >
-                    다른 검색
                   </button>
                 </div>
               </div>

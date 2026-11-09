@@ -30,7 +30,7 @@ export const getBuildId = (): string => {
   if (typeof __APP_BUILD_ID__ !== 'undefined' && __APP_BUILD_ID__) {
     return __APP_BUILD_ID__;
   }
-  return `${getBuildDate()}-static`;
+  return `${getBuildDate()}-release`;
 };
 
 export const APP_BUILD_DATE = getBuildDate();

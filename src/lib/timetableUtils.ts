@@ -63,6 +63,7 @@ export interface Teacher {
   id: string;
   name: string;
   homeroom: string; // e.g. "101"
+  subject?: string; // e.g. "국어", "수학"
   timetable: TeacherTimetable;
 }
 

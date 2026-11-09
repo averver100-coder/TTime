@@ -13,6 +13,10 @@
           "type": "string",
           "description": "Homeroom assigned to the teacher, e.g., '101' for 1st grade 1st class"
         },
+        "subject": {
+          "type": "string",
+          "description": "Subject taught by the teacher, e.g., '국어', '수학'"
+        },
         "timetable": {
           "type": "string",
           "description": "JSON stringified timetable data to simplify storage and updates. Maps days to periods to classrooms."

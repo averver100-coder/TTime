@@ -56,6 +56,14 @@ const getKSTDateString = (): string => {
   return `${year}.${month}.${day}`;
 };
 
+const fallbackDate = getKSTDateString();
+const fallbackVersionInfo = {
+  version: `V${fallbackDate}`,
+  buildId: `${fallbackDate}-static`,
+  buildTime: new Date().toISOString(),
+  releaseDate: fallbackDate,
+};
+
 const getVersionInfo = () => {
   try {
     const versionPath = path.join(process.cwd(), 'public', 'version.json');
@@ -69,22 +77,14 @@ const getVersionInfo = () => {
   } catch (e) {
     console.debug('[Server] Error reading version.json:', e);
   }
-  const date = getKSTDateString();
-  return {
-    version: `V${date}`,
-    buildId: `${date}-static`,
-    buildTime: new Date().toISOString(),
-    releaseDate: date,
-  };
+  return fallbackVersionInfo;
 };
 
-const serverVersionInfo = getVersionInfo();
-
-app.get('/api/version', (req, res) => {
+app.get(['/api/version', '/version.json'], (req, res) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
-  return res.json(serverVersionInfo);
+  return res.json(getVersionInfo());
 });
 
 app.get('/api/health', (req, res) => {
@@ -1805,18 +1805,29 @@ app.post('/api/parse-lunch-duty', upload.single('file'), handleLunchDutyParse);
 app.post('/api/parse-timetable', upload.single('file'), handleTimetableParse);
 app.post('/api/parse-timetable-pdf', upload.single('file'), handleTimetableParse);
 
-app.get('/sw.js', (req, res, next) => {
-  const distSw = path.join(process.cwd(), 'dist', 'sw.js');
-  const pubSw = path.join(process.cwd(), 'public', 'sw.js');
-  const swPath = fs.existsSync(distSw) ? distSw : (fs.existsSync(pubSw) ? pubSw : null);
-  if (swPath) {
-    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-    res.setHeader('Service-Worker-Allowed', '/');
-    return res.sendFile(swPath);
-  }
-  // Safe JS fallback in dev mode when service worker bundle is not yet generated
+app.get('/sw.js', (req, res) => {
   res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-  return res.send('// Dev mode placeholder service worker\nself.addEventListener("install", () => self.skipWaiting());\n');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Service-Worker-Allowed', '/');
+
+  if (process.env.NODE_ENV === 'production') {
+    const distSw = path.join(process.cwd(), 'dist', 'sw.js');
+    if (fs.existsSync(distSw)) {
+      return res.sendFile(distSw);
+    }
+  }
+
+  return res.send(
+    `// Dev mode service worker\n` +
+    `self.addEventListener('install', () => self.skipWaiting());\n` +
+    `self.addEventListener('activate', (event) => {\n` +
+    `  event.waitUntil(\n` +
+    `    caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))).then(() => self.clients.claim())\n` +
+    `  );\n` +
+    `});\n`
+  );
 });
 
 app.get(/^\/workbox-[a-zA-Z0-9]+\.js$/, (req, res, next) => {

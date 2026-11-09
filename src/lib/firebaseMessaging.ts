@@ -89,7 +89,9 @@ export async function requestPushPermission(teacherName?: string): Promise<{
         let swRegistration: ServiceWorkerRegistration | undefined;
         if ('serviceWorker' in navigator) {
           try {
-            swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+            swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+              scope: '/firebase-cloud-messaging-push-scope',
+            });
           } catch (swErr) {
             console.warn('SW registration fallback:', swErr);
           }

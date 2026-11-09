@@ -145,6 +145,7 @@ export async function fetchTeachers(): Promise<Teacher[]> {
         id: t.name,
         name: t.name,
         homeroom: t.homeroom || '',
+        subject: t.subject || '',
         timetable: typeof t.timetable === 'string' ? JSON.parse(t.timetable) : (t.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} })
       });
     }
@@ -159,11 +160,13 @@ export async function fetchTeachers(): Promise<Teacher[]> {
         if (Array.isArray(parsed)) {
           parsed.forEach((t: Teacher) => {
             if (t && t.name) {
+              const prev = teacherMap.get(t.name);
               teacherMap.set(t.name, {
                 id: t.name,
                 name: t.name,
-                homeroom: t.homeroom || '',
-                timetable: typeof t.timetable === 'string' ? JSON.parse(t.timetable) : (t.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} })
+                homeroom: t.homeroom !== undefined ? t.homeroom : (prev?.homeroom || ''),
+                subject: t.subject || prev?.subject || '',
+                timetable: typeof t.timetable === 'string' ? JSON.parse(t.timetable) : (t.timetable || prev?.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} })
               });
             }
           });
@@ -187,11 +190,13 @@ export async function fetchTeachers(): Promise<Teacher[]> {
         localApiCount = data.length;
         data.forEach((t: any) => {
           if (t && t.name) {
+            const prev = teacherMap.get(t.name);
             teacherMap.set(t.name, {
               id: t.name,
               name: t.name,
-              homeroom: t.homeroom || '',
-              timetable: typeof t.timetable === 'string' ? JSON.parse(t.timetable) : (t.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} })
+              homeroom: t.homeroom !== undefined ? t.homeroom : (prev?.homeroom || ''),
+              subject: t.subject !== undefined ? t.subject : (prev?.subject || ''),
+              timetable: typeof t.timetable === 'string' ? JSON.parse(t.timetable) : (t.timetable || prev?.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} })
             });
           }
         });
@@ -209,11 +214,13 @@ export async function fetchTeachers(): Promise<Teacher[]> {
         const data = docSnap.data();
         const name = data.name || docSnap.id;
         if (name) {
+          const prev = teacherMap.get(name);
           teacherMap.set(name, {
             id: name,
             name: name,
-            homeroom: data.homeroom || '',
-            timetable: typeof data.timetable === 'string' ? JSON.parse(data.timetable) : (data.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} })
+            homeroom: data.homeroom !== undefined ? data.homeroom : (prev?.homeroom || ''),
+            subject: data.subject !== undefined ? data.subject : (prev?.subject || ''),
+            timetable: typeof data.timetable === 'string' ? JSON.parse(data.timetable) : (data.timetable || prev?.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} })
           });
         }
       });
@@ -261,6 +268,7 @@ export async function saveSingleTeacher(teacher: Teacher): Promise<void> {
     id: teacher.name,
     name: teacher.name,
     homeroom: teacher.homeroom || '',
+    subject: teacher.subject || '',
     timetable: teacher.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} }
   };
 
@@ -282,6 +290,7 @@ export async function saveSingleTeacher(teacher: Teacher): Promise<void> {
       await setDoc(ref, {
         name: cleanTeacher.name,
         homeroom: cleanTeacher.homeroom || '',
+        subject: cleanTeacher.subject || '',
         timetable: typeof cleanTeacher.timetable === 'string' 
           ? cleanTeacher.timetable 
           : JSON.stringify(cleanTeacher.timetable),
@@ -370,6 +379,7 @@ export async function resetAndUploadTeachers(teachers: Teacher[]): Promise<void>
           data: {
             name: teacher.name,
             homeroom: teacher.homeroom || '',
+            subject: teacher.subject || '',
             timetable: typeof teacher.timetable === 'string' ? teacher.timetable : JSON.stringify(teacher.timetable),
             updatedAt: Date.now()
           }
