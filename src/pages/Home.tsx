@@ -1384,24 +1384,23 @@ export const Home: React.FC = () => {
                           <div
                             key={t.id || t.name}
                             onClick={() => handleSelectTeacher(t)}
-                            className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-blue-50 transition flex items-center justify-between group cursor-pointer"
+                            className="w-full text-left px-2.5 sm:px-3 py-2.5 rounded-xl hover:bg-blue-50 transition flex items-center justify-between gap-2 group cursor-pointer"
                           >
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 shrink-0">
                               <span className="font-semibold text-gray-800 group-hover:text-blue-600 transition text-base">
                                 {t.name}
                               </span>
-                              <span className="text-[11px] font-mono text-gray-400 bg-gray-100 group-hover:bg-blue-100/80 group-hover:text-blue-700 px-1.5 py-0.5 rounded transition">
-                                {getChosung(t.name)}
+                              <span className="inline-flex items-center justify-center text-[11px] font-extrabold text-blue-700 bg-blue-50 border border-blue-200 group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600 px-1.5 py-0.5 rounded-md leading-none transition">
+                                T
                               </span>
-                              <span className="text-xs text-gray-500">선생님</span>
                             </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
+                            <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 justify-end">
+                              <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2 sm:px-2.5 py-1 rounded-md border border-emerald-200 truncate max-w-[135px] sm:max-w-none">
                                 <BookOpen className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                <span>{t.subject?.trim() ? t.subject.trim() : '과목 미지정'}</span>
+                                <span className="truncate">{t.subject?.trim() ? t.subject.trim() : '과목 미지정'}</span>
                               </span>
                               {t.homeroom && (
-                                <span className="text-xs font-semibold text-blue-700 bg-blue-50 group-hover:bg-blue-100 px-2.5 py-1 rounded-md border border-blue-100">
+                                <span className="text-xs font-semibold text-blue-700 bg-blue-50 group-hover:bg-blue-100 px-2 sm:px-2.5 py-1 rounded-md border border-blue-100 shrink-0 whitespace-nowrap">
                                   {formatClassroom(t.homeroom)} 담임
                                 </span>
                               )}
@@ -1411,7 +1410,7 @@ export const Home: React.FC = () => {
                                   e.stopPropagation();
                                   handleToggleTeacherBookmark(t);
                                 }}
-                                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                                className={`p-1 sm:p-1.5 rounded-lg transition cursor-pointer shrink-0 ${
                                   isTBookmarked
                                     ? 'text-amber-500 hover:bg-amber-100/70'
                                     : 'text-gray-300 hover:text-amber-500 hover:bg-gray-100'

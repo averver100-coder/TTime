@@ -420,12 +420,47 @@ function createTeacherBackup(teachers: any[], reason: string = 'manual') {
   }
 }
 
-// Initial safety backup of current 67 teachers on server load
+// Initial safety backup of current teachers on server load & auto-merge subjects from latest backup
 try {
   const currentPath = path.join(process.cwd(), 'src', 'data', 'defaultTeachers.json');
   if (fs.existsSync(currentPath)) {
-    const data = JSON.parse(fs.readFileSync(currentPath, 'utf-8'));
+    let data = JSON.parse(fs.readFileSync(currentPath, 'utf-8'));
     if (Array.isArray(data) && data.length > 0) {
+      // Check if any recent backup has more populated subjects and merge them
+      if (fs.existsSync(BACKUP_DIR)) {
+        const backupFiles = fs.readdirSync(BACKUP_DIR)
+          .filter(f => f.startsWith('backup_') && f.endsWith('.json') && !f.includes('server_boot'))
+          .map(f => ({
+            name: f,
+            time: fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs
+          }))
+          .sort((a, b) => b.time - a.time);
+
+        if (backupFiles.length > 0) {
+          try {
+            const latestBackup = JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, backupFiles[0].name), 'utf-8'));
+            if (Array.isArray(latestBackup)) {
+              const subjMap = new Map<string, string>();
+              latestBackup.forEach((bt: any) => {
+                if (bt?.name && bt?.subject && String(bt.subject).trim()) {
+                  subjMap.set(bt.name, String(bt.subject).trim());
+                }
+              });
+              let updated = false;
+              data = data.map((t: any) => {
+                if ((!t.subject || !String(t.subject).trim()) && subjMap.has(t.name)) {
+                  updated = true;
+                  return { ...t, subject: subjMap.get(t.name) };
+                }
+                return t;
+              });
+              if (updated) {
+                fs.writeFileSync(currentPath, JSON.stringify(data, null, 2), 'utf-8');
+              }
+            }
+          } catch {}
+        }
+      }
       createTeacherBackup(data, 'server_boot');
     }
   }
