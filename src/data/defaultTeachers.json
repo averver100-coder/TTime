@@ -384,6 +384,7 @@
     "id": "김정은",
     "name": "김정은",
     "homeroom": "",
+    "subject": "공통 국어2",
     "timetable": {
       "Mon": {
         "2": "108",

@@ -1760,10 +1760,10 @@ export const Admin: React.FC = () => {
                                 }
                               }}
                               placeholder="과목 입력 (예: 수학)"
-                              className={`w-32 sm:w-36 px-2.5 py-1 text-xs rounded-lg outline-none focus:ring-2 focus:ring-red-500/30 transition placeholder:text-gray-400 ${
+                              className={`w-32 sm:w-36 px-2.5 py-1 text-xs rounded-lg outline-none focus:ring-2 focus:ring-emerald-500/30 transition placeholder:text-gray-400 ${
                                 t.subject?.trim()
-                                  ? 'font-bold bg-red-50/90 hover:bg-white focus:bg-white border-2 border-red-300 focus:border-red-500 text-red-800'
-                                  : 'font-medium bg-gray-50 hover:bg-white focus:bg-white border border-gray-300 focus:border-red-500 text-gray-800'
+                                  ? 'font-bold bg-emerald-50 hover:bg-white focus:bg-white border border-emerald-200 focus:border-emerald-500 text-emerald-700'
+                                  : 'font-medium bg-gray-50 hover:bg-white focus:bg-white border border-gray-300 focus:border-emerald-500 text-gray-800'
                               }`}
                               title="과목 입력 후 Enter 또는 포커스 이동 시 자동 저장됩니다"
                             />

@@ -179,6 +179,7 @@ export async function fetchTeachers(): Promise<Teacher[]> {
 
   // 3. Revalidate in background from local Express API (with abort controller timeout)
   let localApiCount = 0;
+  let localApiSubjects = new Map<string, string>();
   try {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timeoutId = setTimeout(() => controller?.abort(), 2000);
@@ -190,12 +191,13 @@ export async function fetchTeachers(): Promise<Teacher[]> {
         localApiCount = data.length;
         data.forEach((t: any) => {
           if (t && t.name) {
+            localApiSubjects.set(t.name, t.subject || '');
             const prev = teacherMap.get(t.name);
             teacherMap.set(t.name, {
               id: t.name,
               name: t.name,
               homeroom: t.homeroom !== undefined ? t.homeroom : (prev?.homeroom || ''),
-              subject: t.subject !== undefined ? t.subject : (prev?.subject || ''),
+              subject: (t.subject && String(t.subject).trim()) ? String(t.subject).trim() : (prev?.subject || ''),
               timetable: typeof t.timetable === 'string' ? JSON.parse(t.timetable) : (t.timetable || prev?.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} })
             });
           }
@@ -219,7 +221,7 @@ export async function fetchTeachers(): Promise<Teacher[]> {
             id: name,
             name: name,
             homeroom: data.homeroom !== undefined ? data.homeroom : (prev?.homeroom || ''),
-            subject: data.subject !== undefined ? data.subject : (prev?.subject || ''),
+            subject: (data.subject && String(data.subject).trim()) ? String(data.subject).trim() : (prev?.subject || ''),
             timetable: typeof data.timetable === 'string' ? JSON.parse(data.timetable) : (data.timetable || prev?.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} })
           });
         }
@@ -246,8 +248,9 @@ export async function fetchTeachers(): Promise<Teacher[]> {
     }
   }
 
-  // If merged list has more records than local disk API had, sync back to local disk
-  if (mergedList.length > localApiCount) {
+  // Sync back to local disk if records count or subjects differ
+  const hasSubjectDiff = mergedList.some(t => (t.subject || '') !== (localApiSubjects.get(t.name) || ''));
+  if (mergedList.length > localApiCount || hasSubjectDiff) {
     fetch('/api/teachers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -271,6 +274,28 @@ export async function saveSingleTeacher(teacher: Teacher): Promise<void> {
     subject: teacher.subject || '',
     timetable: teacher.timetable || { Mon: {}, Tue: {}, Wed: {}, Thu: {}, Fri: {} }
   };
+
+  // 0. Update SWR localStorage cache immediately
+  if (typeof window !== 'undefined') {
+    try {
+      const cached = localStorage.getItem(SWR_TEACHERS_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) {
+          const idx = parsed.findIndex((t: Teacher) => t.name === cleanTeacher.name);
+          if (idx !== -1) {
+            parsed[idx] = cleanTeacher;
+          } else {
+            parsed.push(cleanTeacher);
+          }
+          parsed.sort((a: Teacher, b: Teacher) => a.name.localeCompare(b.name, 'ko'));
+          localStorage.setItem(SWR_TEACHERS_CACHE_KEY, JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {
+      console.warn('Failed updating SWR cache on single teacher save:', e);
+    }
+  }
 
   // 1. Update local Express server API
   try {

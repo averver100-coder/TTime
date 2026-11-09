@@ -1396,6 +1396,10 @@ export const Home: React.FC = () => {
                               <span className="text-xs text-gray-500">선생님</span>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
+                                <BookOpen className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                <span>{t.subject?.trim() ? t.subject.trim() : '과목 미지정'}</span>
+                              </span>
                               {t.homeroom && (
                                 <span className="text-xs font-semibold text-blue-700 bg-blue-50 group-hover:bg-blue-100 px-2.5 py-1 rounded-md border border-blue-100">
                                   {formatClassroom(t.homeroom)} 담임
@@ -1539,10 +1543,10 @@ export const Home: React.FC = () => {
                     </button>
                   )}
                   <div
-                    className="inline-flex items-center gap-1.5 text-xs font-extrabold text-red-800 bg-red-100 px-3.5 py-2 rounded-xl border-2 border-red-400 shadow-xs"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-3.5 py-2 rounded-xl border border-emerald-200 shadow-2xs"
                     title="담당 과목"
                   >
-                    <BookOpen className="w-4 h-4 text-red-600 stroke-[2.5] shrink-0" />
+                    <BookOpen className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span>{selectedTeacher.subject?.trim() ? selectedTeacher.subject.trim() : '과목 미지정'}</span>
                   </div>
                   <button
