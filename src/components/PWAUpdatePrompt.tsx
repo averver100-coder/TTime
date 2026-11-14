@@ -9,31 +9,42 @@ import {
   broadcastSkipWaitingToAllWorkers,
   cleanTestUrlParams,
 } from '../lib/pwaUpdateManager';
-import { checkServerVersionStrict, getAppReleaseVersion, getBuildId } from '../lib/version';
+import {
+  checkServerVersionStrict,
+  getAppReleaseVersion,
+  getBuildId,
+  isNewerReleaseVersion,
+} from '../lib/version';
 
 interface PWAUpdatePromptProps {
   /** Optional position override: 'top' (default, matching IT Desk) or 'bottom' */
   position?: 'top' | 'bottom';
+  /** Version update detected directly by App.tsx startup/background checks */
+  externalUpdate?: { version: string; buildId: string } | null;
+  onClearExternalUpdate?: () => void;
 }
 
 const DISMISSED_BUILD_ID_KEY = 'pwa_update_dismissed_build_id';
 
 /**
- * PWA Service Worker Update Notification Banner / Toast
- * Matches IT Desk (https://device.srider.kr/) UX & Design.
+ * PWA Service Worker & Server Release Update Notification Banner / Toast
  *
- * Loop-Free Architecture:
- * 1. Driven strictly by Service Worker `needRefresh` (`registration.waiting`), never forcing
- *    a prompt when there is no waiting worker to activate.
- * 2. Enforces an unconditional 5-minute cooldown (`isRecentlyUpdated()`) and persistent
- *    buildId acknowledgment (`markRecentlyUpdated(remoteBuildId)`) as soon as the user clicks
- *    "새로고침", making infinite reload loops impossible.
- * 3. Includes full diagnostic console logs for `needRefresh` state and SW lifecycle events.
+ * Loop-Free & Version-Strict Architecture:
+ * 1. Only activates when server release version is strictly higher than the running client
+ *    version (`isNewerReleaseVersion(remote, current)`), or an unacknowledged waiting worker exists.
+ * 2. Enforces 5-minute cooldown and persistent buildId acknowledgment for background prompts,
+ *    while allowing explicit manual `[업데이트 확인]` checks to display any strictly newer version.
+ * 3. One-click update purges stale browser CacheStorage entries, sends SKIP_WAITING, and reloads.
  */
-export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'top' }) => {
+export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({
+  position = 'top',
+  externalUpdate = null,
+  onClearExternalUpdate,
+}) => {
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
   const [showPrompt, setShowPrompt] = useState<boolean>(false);
   const [isManualTest, setIsManualTest] = useState<boolean>(false);
+  const [isManualCheckTriggered, setIsManualCheckTriggered] = useState<boolean>(false);
   const [newVersionLabel, setNewVersionLabel] = useState<string>('');
   const [remoteBuildId, setRemoteBuildId] = useState<string>('');
   const swRegistrationRef = useRef<ServiceWorkerRegistration | undefined>(undefined);
@@ -73,7 +84,6 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
           console.log(`[PWAUpdatePrompt] [${source}] Skipped SW check (recently updated guard active)`);
           return;
         }
-        console.log(`[PWAUpdatePrompt] [${source}] Calling registration.update()`);
         registration.update().catch((err) => {
           console.debug(`[PWAUpdatePrompt] [${source}] registration.update() notice:`, err);
         });
@@ -102,34 +112,21 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
       };
       document.addEventListener('visibilitychange', handleVisibilityChange);
 
-      // 4. If a worker is already waiting upon registration, trigger refresh prompt if not recently updated
+      // 4. If a worker is already waiting upon registration, trigger refresh evaluation
       if (registration.waiting && !isRecentlyUpdated()) {
-        console.log(
-          '[PWAUpdatePrompt] registration.waiting is present on mount -> setting needRefresh(true)'
-        );
         setNeedRefresh(true);
       }
 
       // 5. Watch for service worker update lifecycle
       registration.addEventListener('updatefound', () => {
         const newWorker = registration.installing;
-        console.log('[PWAUpdatePrompt] Service Worker updatefound event fired:', {
-          installingState: newWorker?.state,
-        });
         if (newWorker) {
           newWorker.addEventListener('statechange', () => {
-            console.log('[PWAUpdatePrompt] Installing Service Worker statechange:', {
-              state: newWorker.state,
-              hasController: Boolean(navigator.serviceWorker.controller),
-            });
             if (
               newWorker.state === 'installed' &&
               navigator.serviceWorker.controller &&
               !isRecentlyUpdated()
             ) {
-              console.log(
-                '[PWAUpdatePrompt] New Service Worker installed & waiting -> setting needRefresh(true)'
-              );
               setNeedRefresh(true);
             }
           });
@@ -147,35 +144,24 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
     },
   });
 
-  // Log component mount and initial state
+  // React to strictly newer release detected by App.tsx startup / background checks
   useEffect(() => {
-    console.log('[PWAUpdatePrompt] Component mounted:', {
-      clientVersion: getAppReleaseVersion(),
-      clientBuildId: getBuildId(),
-      initialNeedRefresh: needRefresh,
-      recentlyUpdatedGuard: isRecentlyUpdated(),
-    });
-  }, []);
+    if (!externalUpdate) return;
+    if (isRecentlyUpdated()) return;
+    if (!isNewerReleaseVersion(externalUpdate.version, getAppReleaseVersion())) return;
+    if (externalUpdate.buildId && isBuildDismissedOrApplied(externalUpdate.buildId)) return;
 
-  // Dedicated diagnostic logger & visibility evaluation when `needRefresh` changes
+    setNewVersionLabel(externalUpdate.version);
+    setRemoteBuildId(externalUpdate.buildId);
+    setShowPrompt(true);
+  }, [externalUpdate, isBuildDismissedOrApplied]);
+
+  // Dedicated diagnostic evaluation when Service Worker `needRefresh` changes
   useEffect(() => {
     let isMounted = true;
-
-    console.log('[PWAUpdatePrompt] needRefresh state changed:', {
-      needRefresh,
-      currentShowPrompt: showPrompt,
-      recentlyUpdatedGuard: isRecentlyUpdated(),
-      clientVersion: getAppReleaseVersion(),
-      clientBuildId: getBuildId(),
-    });
-
     if (!needRefresh) return;
 
-    // Gate 1: Never show prompt if user just refreshed for an update within the last 5 minutes
     if (isRecentlyUpdated()) {
-      console.log(
-        '[PWAUpdatePrompt] needRefresh=true suppressed by 5-minute post-update guard.'
-      );
       setNeedRefresh(false);
       setShowPrompt(false);
       return;
@@ -186,30 +172,24 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
         const checkResult = await checkServerVersionStrict();
         if (!isMounted) return;
 
-        console.log(
-          '[PWAUpdatePrompt] needRefresh=true -> Server version verification:',
-          checkResult
-        );
-
         const targetBuildId = checkResult.remoteBuildId || '';
         const targetVersion = checkResult.remoteVersion || getAppReleaseVersion();
 
-        // Gate 2: If this specific buildId was already applied or dismissed, suppress prompt
         if (targetBuildId && isBuildDismissedOrApplied(targetBuildId)) {
-          console.log(
-            `[PWAUpdatePrompt] needRefresh=true suppressed because buildId (${targetBuildId}) was already applied or dismissed.`
-          );
           setNeedRefresh(false);
           setShowPrompt(false);
           return;
         }
 
-        // Gate 3: Ensure a waiting worker actually exists or server has a genuinely different release
         const reg = swRegistrationRef.current;
-        if (!reg?.waiting && !checkResult.hasNewRelease) {
-          console.log(
-            '[PWAUpdatePrompt] needRefresh=true suppressed: no waiting worker and server version matches client.'
-          );
+        if (!checkResult.hasNewRelease && !reg?.waiting) {
+          setNeedRefresh(false);
+          setShowPrompt(false);
+          return;
+        }
+
+        // Even with a waiting worker, avoid prompting if server and client versions are identical
+        if (!checkResult.hasNewRelease && checkResult.remoteVersion === checkResult.currentVersion) {
           setNeedRefresh(false);
           setShowPrompt(false);
           return;
@@ -217,18 +197,10 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
 
         setNewVersionLabel(targetVersion);
         setRemoteBuildId(targetBuildId);
-        console.log(
-          '[PWAUpdatePrompt] All visibility gates passed -> setting showPrompt(true) for version:',
-          targetVersion
-        );
         setShowPrompt(true);
       } catch (err) {
         if (!isMounted) return;
         console.warn('[PWAUpdatePrompt] Version check error while needRefresh=true:', err);
-        if (swRegistrationRef.current?.waiting && !isRecentlyUpdated()) {
-          setNewVersionLabel(getAppReleaseVersion());
-          setShowPrompt(true);
-        }
       }
     };
 
@@ -239,24 +211,11 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
     };
   }, [needRefresh, setNeedRefresh, isBuildDismissedOrApplied]);
 
-  // Log whenever `showPrompt` visibility state changes
-  useEffect(() => {
-    console.log('[PWAUpdatePrompt] Visibility state (showPrompt) changed:', {
-      showPrompt,
-      isManualTest,
-      displayedVersion: newVersionLabel || getAppReleaseVersion(),
-      remoteBuildId,
-    });
-  }, [showPrompt, isManualTest, newVersionLabel, remoteBuildId]);
-
   // Controllerchange: reload once safely when the new service worker activates
   useEffect(() => {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
     let hasReloaded = false;
     const onControllerChange = () => {
-      console.log('[PWAUpdatePrompt] navigator.serviceWorker controllerchange fired!', {
-        hasReloaded,
-      });
       if (!hasReloaded) {
         hasReloaded = true;
         markRecentlyUpdated(remoteBuildId);
@@ -276,7 +235,6 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
 
     const url = new URL(window.location.href);
     if (url.searchParams.get('test_update') === '1' || url.searchParams.get('test_pwa') === '1') {
-      console.log('[PWAUpdatePrompt] URL test parameter detected -> showing prompt');
       setIsManualTest(true);
       setShowPrompt(true);
     }
@@ -284,13 +242,10 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
     const handleCustomPrompt = async (e: Event) => {
       const customEvent = e as CustomEvent<{
         forceTest?: boolean;
+        forceManual?: boolean;
         remoteVersion?: string;
         remoteBuildId?: string;
       }>;
-      console.log(
-        '[PWAUpdatePrompt] Custom event pwa-show-update-prompt received:',
-        customEvent.detail
-      );
 
       if (customEvent?.detail?.forceTest) {
         setIsManualTest(true);
@@ -300,19 +255,25 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
         return;
       }
 
-      if (isRecentlyUpdated()) return;
+      const isManual = Boolean(customEvent?.detail?.forceManual);
+      if (!isManual && isRecentlyUpdated()) return;
 
       if (customEvent?.detail?.remoteVersion) {
         const bId = customEvent.detail.remoteBuildId || '';
-        if (bId && isBuildDismissedOrApplied(bId)) return;
-        setNewVersionLabel(customEvent.detail.remoteVersion);
-        setRemoteBuildId(bId);
-        setShowPrompt(true);
+        const rVer = customEvent.detail.remoteVersion;
+        if (!isManual && bId && isBuildDismissedOrApplied(bId)) return;
+        if (isManual || isNewerReleaseVersion(rVer, getAppReleaseVersion())) {
+          setIsManualCheckTriggered(isManual);
+          setNewVersionLabel(rVer);
+          setRemoteBuildId(bId);
+          setShowPrompt(true);
+        }
         return;
       }
 
       const check = await checkServerVersionStrict();
-      if (check.hasNewRelease && !isBuildDismissedOrApplied(check.remoteBuildId)) {
+      if (check.hasNewRelease && (isManual || !isBuildDismissedOrApplied(check.remoteBuildId))) {
+        setIsManualCheckTriggered(isManual);
         setNewVersionLabel(check.remoteVersion || getAppReleaseVersion());
         setRemoteBuildId(check.remoteBuildId || '');
         setShowPrompt(true);
@@ -325,14 +286,12 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
     };
   }, [isBuildDismissedOrApplied]);
 
-  // Apply update and reload
+  // Apply update and reload with one click
   const handleApplyUpdate = async () => {
     if (isUpdating) return;
-    console.log('[PWAUpdatePrompt] User clicked Apply Update (새로고침) for buildId:', remoteBuildId);
     setIsUpdating(true);
 
     cleanTestUrlParams();
-    // Immediately record 5-minute cooldown and acknowledge buildId BEFORE reloading
     markRecentlyUpdated(remoteBuildId || getBuildId());
     try {
       if (remoteBuildId) {
@@ -342,7 +301,19 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
 
     setShowPrompt(false);
     setIsManualTest(false);
+    setIsManualCheckTriggered(false);
     setNeedRefresh(false);
+    onClearExternalUpdate?.();
+
+    // Purge cached assets if CacheStorage API exists so updated chunks are fetched cleanly
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      }
+    } catch (err) {
+      console.debug('[PWAUpdatePrompt] Cache clear notice:', err);
+    }
 
     // Direct SKIP_WAITING broadcast to all waiting workers
     try {
@@ -358,19 +329,19 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
       console.debug('[PWAUpdatePrompt] updateServiceWorker execution error:', err);
     }
 
-    // Fallback reload if controllerchange does not fire within 600ms
+    // Force fresh reload
     setTimeout(() => {
       window.location.reload();
-    }, 600);
+    }, 350);
   };
 
   const handleDismiss = () => {
-    console.log('[PWAUpdatePrompt] User dismissed update prompt for buildId:', remoteBuildId);
     setShowPrompt(false);
     setIsManualTest(false);
+    setIsManualCheckTriggered(false);
     setNeedRefresh(false);
+    onClearExternalUpdate?.();
     cleanTestUrlParams();
-    // Also mark buildId as acknowledged so it won't re-pop in this session
     markRecentlyUpdated(remoteBuildId || getBuildId());
     try {
       if (remoteBuildId) {
@@ -384,7 +355,8 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
       ? 'fixed bottom-4 inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-auto sm:min-w-[460px] sm:max-w-xl z-[9999] pointer-events-auto'
       : 'fixed top-4 inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-auto sm:min-w-[460px] sm:max-w-xl z-[9999] pointer-events-auto';
 
-  const isVisible = showPrompt && (isManualTest || !isRecentlyUpdated());
+  const isVisible = showPrompt && (isManualTest || isManualCheckTriggered || !isRecentlyUpdated());
+  const currentVersion = getAppReleaseVersion();
 
   return (
     <AnimatePresence>
@@ -400,7 +372,7 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
           className={positionClass}
         >
           <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl shadow-2xl shadow-blue-600/30 border border-white/25 backdrop-blur-md flex items-center justify-between gap-3">
-            {/* Left: Animated icon and titles matching screenshot */}
+            {/* Left: Animated icon and titles */}
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-9 h-9 rounded-xl bg-white/20 text-white flex items-center justify-center shrink-0 shadow-inner">
                 {isUpdating ? (
@@ -414,25 +386,25 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
                   <span className="font-bold text-sm tracking-tight truncate text-white">
                     {isUpdating ? '최신 버전 적용 중...' : '새로운 업데이트가 있습니다'}
                   </span>
-                  <span className="px-1.5 py-0.5 bg-white/20 text-[10px] font-extrabold rounded-md text-white border border-white/30 tracking-tight">
-                    {newVersionLabel || getAppReleaseVersion()}
+                  <span className="px-2 py-0.5 bg-white/20 text-[11px] font-extrabold rounded-md text-white border border-white/30 tracking-tight font-mono tabular-nums">
+                    {newVersionLabel || currentVersion}
                   </span>
                 </div>
                 <p className="text-[11px] sm:text-xs text-blue-100/90 truncate mt-0.5">
                   {isUpdating
-                    ? '잠시 후 페이지가 자동으로 새로고침됩니다.'
-                    : '새로운 릴리즈가 배포되었습니다. 지금 새로고침하여 적용하세요.'}
+                    ? '잠시 후 최신 버전으로 자동 전환됩니다.'
+                    : `현재 ${currentVersion} → ${newVersionLabel || currentVersion} 최신 버전으로 원클릭 갱신하세요.`}
                 </p>
               </div>
             </div>
 
-            {/* Right: Action Buttons */}
+            {/* Right: One-click Action Buttons */}
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={handleApplyUpdate}
                 disabled={isUpdating}
-                className="bg-white hover:bg-blue-50 text-blue-700 font-extrabold px-3.5 py-2 rounded-xl text-xs sm:text-sm shadow-md transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 disabled:opacity-75 disabled:cursor-not-allowed"
+                className="bg-white hover:bg-blue-50 text-blue-700 font-extrabold px-3.5 py-2 rounded-xl text-xs sm:text-sm shadow-md transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 disabled:opacity-75 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
                 title="새로운 버전을 적용하고 새로고침합니다"
               >
                 {isUpdating ? (
@@ -440,7 +412,7 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({ position = 'to
                 ) : (
                   <RefreshCw size={13} className="text-blue-600" />
                 )}
-                <span>{isUpdating ? '적용 중...' : '새로고침'}</span>
+                <span>{isUpdating ? '적용 중...' : '지금 업데이트'}</span>
               </button>
 
               <button

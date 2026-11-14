@@ -124,40 +124,40 @@ export async function checkForPWAUpdate(): Promise<boolean> {
   try {
     console.log('[PWA] Manual update check initiated...');
 
-    // 1. Check Service Worker registration and trigger update check
+    // 1. Trigger Service Worker update check if registered
+    let hasWaitingWorker = false;
     if ('serviceWorker' in navigator) {
       const reg = await navigator.serviceWorker.getRegistration();
       if (reg) {
         await reg.update().catch(() => {});
-        if (reg.waiting) {
-          const strict = await checkServerVersionStrict().catch(() => null);
-          console.log('[PWA] Manual check found waiting Service Worker:', {
-            remoteVersion: strict?.remoteVersion,
-            remoteBuildId: strict?.remoteBuildId,
-          });
-          window.dispatchEvent(
-            new CustomEvent('pwa-show-update-prompt', {
-              detail: {
-                remoteVersion: strict?.remoteVersion || '',
-                remoteBuildId: strict?.remoteBuildId || '',
-              },
-            })
-          );
-          return true;
-        }
+        hasWaitingWorker = Boolean(reg.waiting);
       }
     }
 
-    // 2. Strict version comparison check against server
+    // 2. Strict semantic version comparison against live server version
     const strictResult = await checkServerVersionStrict();
     console.log('[PWA] Manual check server version comparison:', strictResult);
 
-    if (strictResult.hasNewRelease && !isBuildAcknowledged(strictResult.remoteBuildId)) {
+    if (strictResult.hasNewRelease) {
       window.dispatchEvent(
         new CustomEvent('pwa-show-update-prompt', {
           detail: {
             remoteVersion: strictResult.remoteVersion,
             remoteBuildId: strictResult.remoteBuildId,
+            forceManual: true,
+          },
+        })
+      );
+      return true;
+    }
+
+    if (hasWaitingWorker && !isRecentlyUpdated()) {
+      window.dispatchEvent(
+        new CustomEvent('pwa-show-update-prompt', {
+          detail: {
+            remoteVersion: strictResult.remoteVersion,
+            remoteBuildId: strictResult.remoteBuildId,
+            forceManual: true,
           },
         })
       );

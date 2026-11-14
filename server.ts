@@ -46,9 +46,9 @@ try {
   console.warn('[Server] Failed to initialize Firebase Firestore on server:', fbErr);
 }
 
-// Dynamic release version and build metadata computed at startup/build
+// Dynamic release version and build metadata unified with vite.config.ts & public/version.json
 const getKSTDateString = (): string => {
-  if (process.env.VITE_APP_BUILD_DATE) {
+  if (process.env.VITE_APP_BUILD_DATE && /^\d{4}\.\d{2}\.\d{2}$/.test(process.env.VITE_APP_BUILD_DATE)) {
     return process.env.VITE_APP_BUILD_DATE;
   }
   const now = new Date();
@@ -59,7 +59,7 @@ const getKSTDateString = (): string => {
     day: '2-digit',
   });
   const parts = kstFormatter.formatToParts(now);
-  let year = '2026', month = '10', day = '31';
+  let year = '2026', month = '11', day = '14';
   for (const p of parts) {
     if (p.type === 'year') year = p.value;
     if (p.type === 'month') month = p.value;
@@ -68,28 +68,93 @@ const getKSTDateString = (): string => {
   return `${year}.${month}.${day}`;
 };
 
-const fallbackDate = getKSTDateString();
-const fallbackVersionInfo = {
-  version: `V${fallbackDate}`,
-  buildId: `${fallbackDate}-static`,
-  buildTime: new Date().toISOString(),
-  releaseDate: fallbackDate,
+interface NormalizedVersionPayload {
+  version: string;
+  releaseDate: string;
+  patch: number;
+  buildId: string;
+  buildTime: string;
+  sourceHash?: string;
+}
+
+const parseSemanticVersionTuple = (raw?: string): [number, number, number, number] => {
+  const m = String(raw || '').trim().match(/^V?(\d{4})\.(\d{2})\.(\d{2})(?:\.(\d+))?$/i);
+  if (!m) return [0, 0, 0, 0];
+  return [
+    parseInt(m[1], 10) || 0,
+    parseInt(m[2], 10) || 0,
+    parseInt(m[3], 10) || 0,
+    m[4] ? parseInt(m[4], 10) || 0 : 0,
+  ];
 };
 
-const getVersionInfo = () => {
-  try {
-    const versionPath = path.join(process.cwd(), 'public', 'version.json');
-    if (fs.existsSync(versionPath)) {
-      return JSON.parse(fs.readFileSync(versionPath, 'utf-8'));
-    }
-    const distVersionPath = path.join(process.cwd(), 'dist', 'version.json');
-    if (fs.existsSync(distVersionPath)) {
-      return JSON.parse(fs.readFileSync(distVersionPath, 'utf-8'));
-    }
-  } catch (e) {
-    console.debug('[Server] Error reading version.json:', e);
+const compareSemanticVersions = (a?: string, b?: string): number => {
+  const pa = parseSemanticVersionTuple(a);
+  const pb = parseSemanticVersionTuple(b);
+  for (let i = 0; i < 4; i++) {
+    if (pa[i] !== pb[i]) return pa[i] > pb[i] ? 1 : -1;
   }
-  return fallbackVersionInfo;
+  return 0;
+};
+
+const normalizeVersionPayload = (raw: any): NormalizedVersionPayload | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const match = String(raw.version || '').trim().match(/^V?(\d{4}\.\d{2}\.\d{2})(?:\.(\d+))?$/i);
+  const releaseDate =
+    match?.[1] ||
+    (typeof raw.releaseDate === 'string' && /^\d{4}\.\d{2}\.\d{2}$/.test(raw.releaseDate)
+      ? raw.releaseDate
+      : getKSTDateString());
+  const patchNum = match?.[2]
+    ? parseInt(match[2], 10)
+    : typeof raw.patch === 'number' && raw.patch > 0
+      ? raw.patch
+      : 1;
+  const paddedPatch = String(patchNum).padStart(2, '0');
+  const version = `V${releaseDate}.${paddedPatch}`;
+
+  return {
+    version,
+    releaseDate,
+    patch: patchNum,
+    buildId: String(raw.buildId || `${version}-release`),
+    buildTime: String(raw.buildTime || new Date().toISOString()),
+    ...(raw.sourceHash ? { sourceHash: String(raw.sourceHash) } : {}),
+  };
+};
+
+const getVersionInfo = (): NormalizedVersionPayload => {
+  const candidates: NormalizedVersionPayload[] = [];
+  const candidatePaths =
+    process.env.NODE_ENV === 'production'
+      ? [path.join(process.cwd(), 'dist', 'version.json'), path.join(process.cwd(), 'public', 'version.json')]
+      : [path.join(process.cwd(), 'public', 'version.json'), path.join(process.cwd(), 'dist', 'version.json')];
+
+  for (const filePath of candidatePaths) {
+    try {
+      if (fs.existsSync(filePath)) {
+        const parsed = normalizeVersionPayload(JSON.parse(fs.readFileSync(filePath, 'utf-8')));
+        if (parsed) candidates.push(parsed);
+      }
+    } catch (e) {
+      console.debug('[Server] Error reading version.json:', e);
+    }
+  }
+
+  if (candidates.length > 0) {
+    candidates.sort((a, b) => compareSemanticVersions(b.version, a.version));
+    return candidates[0];
+  }
+
+  const currentKstDate = getKSTDateString();
+  const fallbackVersion = `V${currentKstDate}.01`;
+  return {
+    version: fallbackVersion,
+    releaseDate: currentKstDate,
+    patch: 1,
+    buildId: `${fallbackVersion}-static`,
+    buildTime: new Date().toISOString(),
+  };
 };
 
 app.get(['/api/version', '/version.json'], (req, res) => {

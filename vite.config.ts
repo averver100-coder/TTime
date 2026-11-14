@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import {defineConfig, type Plugin} from 'vite';
@@ -68,7 +69,7 @@ function aistudioMediaPlugin(): Plugin {
 
 // Calculate current KST (UTC+9) date string (YYYY.MM.DD) at build/compile time
 const getKSTDateString = (): string => {
-  if (process.env.VITE_APP_BUILD_DATE) {
+  if (process.env.VITE_APP_BUILD_DATE && /^\d{4}\.\d{2}\.\d{2}$/.test(process.env.VITE_APP_BUILD_DATE)) {
     return process.env.VITE_APP_BUILD_DATE;
   }
   const now = new Date();
@@ -79,7 +80,7 @@ const getKSTDateString = (): string => {
     day: '2-digit',
   });
   const parts = kstFormatter.formatToParts(now);
-  let year = '2026', month = '10', day = '31';
+  let year = '2026', month = '11', day = '14';
   for (const p of parts) {
     if (p.type === 'year') year = p.value;
     if (p.type === 'month') month = p.value;
@@ -88,35 +89,138 @@ const getKSTDateString = (): string => {
   return `${year}.${month}.${day}`;
 };
 
-const ensureVersionFile = (isBuild: boolean) => {
+interface VersionFileInfo {
+  version: string;
+  releaseDate: string;
+  patch: number;
+  buildId: string;
+  buildTime: string;
+  sourceHash: string;
+}
+
+const parseVersionMetadata = (
+  rawVersion?: string,
+  rawReleaseDate?: string,
+  rawPatch?: number
+): { releaseDate: string; patch: number } | null => {
+  if (rawVersion) {
+    const match = String(rawVersion).trim().match(/^V?(\d{4}\.\d{2}\.\d{2})(?:\.(\d+))?$/i);
+    if (match) {
+      const releaseDate = match[1];
+      const patch = match[2] ? parseInt(match[2], 10) : typeof rawPatch === 'number' ? rawPatch : 0;
+      return { releaseDate, patch: Number.isFinite(patch) && patch >= 0 ? patch : 0 };
+    }
+  }
+  if (rawReleaseDate && /^\d{4}\.\d{2}\.\d{2}$/.test(rawReleaseDate)) {
+    return {
+      releaseDate: rawReleaseDate,
+      patch: typeof rawPatch === 'number' && Number.isFinite(rawPatch) ? rawPatch : 0,
+    };
+  }
+  return null;
+};
+
+// Deterministic SHA-256 hash across source tree so even single-file edits are tracked precisely
+const computeSourceHash = (): string => {
+  const hash = crypto.createHash('sha256');
+  const walkAndHash = (targetPath: string) => {
+    if (!fs.existsSync(targetPath)) return;
+    const stat = fs.statSync(targetPath);
+    if (stat.isDirectory()) {
+      const baseName = path.basename(targetPath);
+      if (baseName === 'node_modules' || baseName === 'dist' || baseName === '.git' || baseName === 'assets' || baseName === 'backups') {
+        return;
+      }
+      const entries = fs.readdirSync(targetPath).sort();
+      for (const entry of entries) {
+        walkAndHash(path.join(targetPath, entry));
+      }
+    } else if (stat.isFile()) {
+      const rel = path.relative(__dirname, targetPath).replace(/\\/g, '/');
+      if (rel === 'public/version.json' || rel.endsWith('.map')) return;
+      hash.update(rel);
+      hash.update(fs.readFileSync(targetPath));
+    }
+  };
+
+  walkAndHash(path.resolve(__dirname, 'src'));
+  walkAndHash(path.resolve(__dirname, 'server.ts'));
+  walkAndHash(path.resolve(__dirname, 'server'));
+  walkAndHash(path.resolve(__dirname, 'index.html'));
+  walkAndHash(path.resolve(__dirname, 'package.json'));
+  walkAndHash(path.resolve(__dirname, 'vite.config.ts'));
+
+  return hash.digest('hex').slice(0, 16);
+};
+
+const ensureVersionFile = (isBuild: boolean): VersionFileInfo => {
   const publicDir = path.resolve(__dirname, 'public');
   if (!fs.existsSync(publicDir)) {
     fs.mkdirSync(publicDir, { recursive: true });
   }
   const versionFilePath = path.resolve(publicDir, 'version.json');
+  const dateStr = getKSTDateString();
+  const sourceHash = computeSourceHash();
 
-  // In dev/serve mode, reuse existing version.json if present so restarts never cause a buildId mismatch
-  if (!isBuild && fs.existsSync(versionFilePath)) {
+  let existingRaw: Partial<VersionFileInfo> | null = null;
+  if (fs.existsSync(versionFilePath)) {
     try {
-      const existing = JSON.parse(fs.readFileSync(versionFilePath, 'utf-8'));
-      if (existing && existing.version && existing.buildId && existing.releaseDate) {
-        return existing;
-      }
-    } catch {}
+      existingRaw = JSON.parse(fs.readFileSync(versionFilePath, 'utf-8'));
+    } catch {
+      existingRaw = null;
+    }
   }
 
-  const dateStr = getKSTDateString();
-  const releaseVersion = `V${dateStr}`;
-  const buildId = `${dateStr}-release`;
+  const parsedExisting = existingRaw
+    ? parseVersionMetadata(existingRaw.version, existingRaw.releaseDate, existingRaw.patch)
+    : null;
+  const isSameDay = Boolean(parsedExisting && parsedExisting.releaseDate === dateStr);
+  const hasProperPatchFormat = Boolean(
+    existingRaw?.version && /^V\d{4}\.\d{2}\.\d{2}\.\d{2,}$/.test(existingRaw.version)
+  );
+
+  // In dev/serve mode, reuse existing version.json ONLY if date is today, format has patch, and sourceHash is unchanged
+  if (
+    !isBuild &&
+    existingRaw &&
+    isSameDay &&
+    hasProperPatchFormat &&
+    existingRaw.sourceHash === sourceHash &&
+    existingRaw.buildId
+  ) {
+    return {
+      version: existingRaw.version!,
+      releaseDate: dateStr,
+      patch: parsedExisting!.patch,
+      buildId: existingRaw.buildId!,
+      buildTime: existingRaw.buildTime || new Date().toISOString(),
+      sourceHash,
+    };
+  }
+
+  // Date rollover protection: ONLY increment patch when existing releaseDate matches today's KST date.
+  // When a new KST day starts, patch always resets to 1 (VYYYY.MM.DD.01).
+  let nextPatch = 1;
+  if (isSameDay && parsedExisting) {
+    nextPatch = parsedExisting.patch > 0 ? parsedExisting.patch + 1 : 1;
+  }
+
+  const paddedPatch = String(nextPatch).padStart(2, '0');
+  const releaseVersion = `V${dateStr}.${paddedPatch}`;
+  const buildId = `${releaseVersion}-${sourceHash.slice(0, 8)}`;
   const buildTime = new Date().toISOString();
-  const info = {
+
+  const info: VersionFileInfo = {
     version: releaseVersion,
+    releaseDate: dateStr,
+    patch: nextPatch,
     buildId,
     buildTime,
-    releaseDate: dateStr,
+    sourceHash,
   };
+
   try {
-    fs.writeFileSync(versionFilePath, JSON.stringify(info, null, 2), 'utf-8');
+    fs.writeFileSync(versionFilePath, JSON.stringify(info, null, 2) + '\n', 'utf-8');
   } catch (err) {
     console.debug('[Vite] Could not write public/version.json:', err);
   }
@@ -129,10 +233,12 @@ export default defineConfig(({ command }) => {
   return {
     define: {
       'import.meta.env.VITE_APP_BUILD_DATE': JSON.stringify(versionInfo.releaseDate),
+      'import.meta.env.VITE_APP_RELEASE_VERSION': JSON.stringify(versionInfo.version),
       __APP_BUILD_DATE__: JSON.stringify(versionInfo.releaseDate),
       __APP_RELEASE_VERSION__: JSON.stringify(versionInfo.version),
       __APP_BUILD_ID__: JSON.stringify(versionInfo.buildId),
       __APP_BUILD_TIME_KST__: JSON.stringify(versionInfo.buildTime),
+      __APP_PATCH_NUMBER__: JSON.stringify(versionInfo.patch),
     },
     plugins: [
       react(), 
@@ -185,6 +291,7 @@ export default defineConfig(({ command }) => {
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+          navigateFallbackDenylist: [/^\/api\//, /^\/version\.json$/],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         },
         devOptions: {

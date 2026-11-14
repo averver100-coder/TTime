@@ -6,3 +6,4 @@ declare const __APP_RELEASE_VERSION__: string | undefined;
 declare const __APP_BUILD_ID__: string | undefined;
 declare const __APP_BUILD_DATE__: string | undefined;
 declare const __APP_BUILD_TIME_KST__: string | undefined;
+declare const __APP_PATCH_NUMBER__: number | undefined;

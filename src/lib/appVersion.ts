@@ -1,36 +1,121 @@
 /**
- * Application Build Date & Release Version Manager
- * Injected at build time via vite.config.ts (VITE_APP_BUILD_DATE)
+ * Application Build Date & Incremental Patch Release Version Manager
+ * Unified with vite.config.ts, public/version.json, and server.ts (VYYYY.MM.DD.XX)
  */
 
 declare const __APP_BUILD_DATE__: string | undefined;
 declare const __APP_RELEASE_VERSION__: string | undefined;
 declare const __APP_BUILD_ID__: string | undefined;
 declare const __APP_BUILD_TIME_KST__: string | undefined;
+declare const __APP_PATCH_NUMBER__: number | undefined;
+
+export interface ParsedReleaseVersion {
+  year: number;
+  month: number;
+  day: number;
+  patch: number;
+  formatted: string;
+}
+
+/**
+ * Parse strings like "V2026.11.14.02" or "V2026.11.14" into numeric tuple parts
+ */
+export function parseReleaseVersion(rawVersion?: string | null): ParsedReleaseVersion | null {
+  if (!rawVersion) return null;
+  const match = String(rawVersion)
+    .trim()
+    .match(/^V?(\d{4})\.(\d{2})\.(\d{2})(?:\.(\d+))?$/i);
+  if (!match) return null;
+
+  const year = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  const day = parseInt(match[3], 10);
+  const patch = match[4] ? parseInt(match[4], 10) : 0;
+
+  if (![year, month, day, patch].every((n) => Number.isFinite(n))) {
+    return null;
+  }
+
+  const paddedMonth = String(month).padStart(2, '0');
+  const paddedDay = String(day).padStart(2, '0');
+  const paddedPatch = String(patch > 0 ? patch : 1).padStart(2, '0');
+
+  return {
+    year,
+    month,
+    day,
+    patch,
+    formatted: `V${year}.${paddedMonth}.${paddedDay}.${paddedPatch}`,
+  };
+}
+
+/**
+ * Compare two release versions semantically:
+ *  > 0 if versionA > versionB
+ *  < 0 if versionA < versionB
+ *  = 0 if equal
+ */
+export function compareReleaseVersions(versionA?: string | null, versionB?: string | null): number {
+  const a = parseReleaseVersion(versionA);
+  const b = parseReleaseVersion(versionB);
+
+  if (!a && !b) return 0;
+  if (a && !b) return 1;
+  if (!a && b) return -1;
+
+  const tupleA = [a!.year, a!.month, a!.day, a!.patch];
+  const tupleB = [b!.year, b!.month, b!.day, b!.patch];
+
+  for (let i = 0; i < 4; i++) {
+    if (tupleA[i] !== tupleB[i]) {
+      return tupleA[i] > tupleB[i] ? 1 : -1;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Strict upgrade check: returns true ONLY when remoteVersion is strictly newer than currentVersion
+ */
+export function isNewerReleaseVersion(remoteVersion?: string | null, currentVersion?: string | null): boolean {
+  return compareReleaseVersions(remoteVersion, currentVersion) > 0;
+}
+
+export function normalizeReleaseVersion(rawVersion?: string | null, fallbackDate?: string): string {
+  const parsed = parseReleaseVersion(rawVersion);
+  if (parsed) {
+    return parsed.formatted;
+  }
+  const datePart = fallbackDate && /^\d{4}\.\d{2}\.\d{2}$/.test(fallbackDate) ? fallbackDate : '2026.11.14';
+  return `V${datePart}.01`;
+}
 
 export const getBuildDate = (): string => {
-  if (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_APP_BUILD_DATE) {
-    return (import.meta as any).env.VITE_APP_BUILD_DATE;
-  }
   if (typeof __APP_BUILD_DATE__ !== 'undefined' && __APP_BUILD_DATE__) {
     return __APP_BUILD_DATE__;
   }
-  return '2026.10.31';
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_APP_BUILD_DATE) {
+    return (import.meta as any).env.VITE_APP_BUILD_DATE;
+  }
+  return '2026.11.14';
 };
 
 export const getAppReleaseVersion = (): string => {
   if (typeof __APP_RELEASE_VERSION__ !== 'undefined' && __APP_RELEASE_VERSION__) {
-    return __APP_RELEASE_VERSION__;
+    return normalizeReleaseVersion(__APP_RELEASE_VERSION__, getBuildDate());
   }
-  const dateStr = getBuildDate();
-  return `V${dateStr}`;
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_APP_RELEASE_VERSION) {
+    return normalizeReleaseVersion((import.meta as any).env.VITE_APP_RELEASE_VERSION, getBuildDate());
+  }
+  const patchNum = typeof __APP_PATCH_NUMBER__ !== 'undefined' && __APP_PATCH_NUMBER__ ? __APP_PATCH_NUMBER__ : 1;
+  return `V${getBuildDate()}.${String(patchNum).padStart(2, '0')}`;
 };
 
 export const getBuildId = (): string => {
   if (typeof __APP_BUILD_ID__ !== 'undefined' && __APP_BUILD_ID__) {
     return __APP_BUILD_ID__;
   }
-  return `${getBuildDate()}-release`;
+  return `${getAppReleaseVersion()}-release`;
 };
 
 export const APP_BUILD_DATE = getBuildDate();
@@ -42,6 +127,7 @@ export interface ServerVersionInfo {
   buildId: string;
   buildTime: string;
   releaseDate: string;
+  patch?: number;
 }
 
 export interface StrictVersionCheckResult {
@@ -54,7 +140,8 @@ export interface StrictVersionCheckResult {
 
 /**
  * Strict server version verification:
- * Compares deployed server version and build ID against the running app instance.
+ * Fetches live server version (/api/version & /version.json) bypassing cache and returns
+ * `hasNewRelease: true` ONLY when server version is strictly higher than the running client version.
  */
 export async function checkServerVersionStrict(): Promise<StrictVersionCheckResult> {
   const currentVersion = getAppReleaseVersion();
@@ -72,8 +159,11 @@ export async function checkServerVersionStrict(): Promise<StrictVersionCheckResu
 
   try {
     let data: ServerVersionInfo | null = null;
-    const response = await fetch('/api/version', {
+    const cacheBuster = Date.now();
+
+    const response = await fetch(`/api/version?_t=${cacheBuster}`, {
       method: 'GET',
+      cache: 'no-store',
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         Pragma: 'no-cache',
@@ -81,16 +171,24 @@ export async function checkServerVersionStrict(): Promise<StrictVersionCheckResu
     }).catch(() => null);
 
     if (response && response.ok) {
-      data = await response.json();
-    } else {
-      // Fallback to static /version.json
-      const jsonRes = await fetch(`/version.json?_t=${Date.now()}`).catch(() => null);
+      data = await response.json().catch(() => null);
+    }
+
+    if (!data || !data.version) {
+      const jsonRes = await fetch(`/version.json?_t=${cacheBuster}`, {
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache',
+        },
+      }).catch(() => null);
       if (jsonRes && jsonRes.ok) {
-        data = await jsonRes.json();
+        data = await jsonRes.json().catch(() => null);
       }
     }
 
-    if (!data) {
+    if (!data || !data.version) {
       return {
         hasNewRelease: false,
         currentVersion,
@@ -100,29 +198,16 @@ export async function checkServerVersionStrict(): Promise<StrictVersionCheckResu
       };
     }
 
-    const remoteVersion = (data.version || '').trim();
-    const remoteBuildId = (data.buildId || '').trim();
-
-    if (!remoteVersion && !remoteBuildId) {
-      return {
-        hasNewRelease: false,
-        currentVersion,
-        remoteVersion: currentVersion,
-        currentBuildId,
-        remoteBuildId: currentBuildId,
-      };
-    }
-
-    const hasNewRelease =
-      (Boolean(remoteBuildId) && remoteBuildId !== currentBuildId) ||
-      (Boolean(remoteVersion) && remoteVersion !== currentVersion);
+    const remoteVersion = normalizeReleaseVersion(data.version, data.releaseDate);
+    const remoteBuildId = String(data.buildId || `${remoteVersion}-release`).trim();
+    const hasNewRelease = isNewerReleaseVersion(remoteVersion, currentVersion);
 
     return {
       hasNewRelease,
       currentVersion,
-      remoteVersion: remoteVersion || currentVersion,
+      remoteVersion,
       currentBuildId,
-      remoteBuildId: remoteBuildId || currentBuildId,
+      remoteBuildId,
     };
   } catch (err) {
     console.debug('[Version] Strict version check network bypass:', err);
@@ -164,7 +249,7 @@ export function showVersionToast(
   } else {
     toast.innerHTML = `
       <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
-      <span class="tracking-tight">최신 버전을 사용 중입니다.(<strong class="text-emerald-300 font-bold">${version}</strong>)</span>
+      <span class="tracking-tight">최신 버전을 사용 중입니다. (<strong class="text-emerald-300 font-bold">${version}</strong>)</span>
     `;
   }
 
