@@ -3,6 +3,7 @@ import { db } from './firebase';
 import { GateDutyDay, GateDutyMonthRecord } from '../types/gateDuty';
 import defaultDutyData from '../data/defaultGateDuties.json';
 import * as XLSX from 'xlsx';
+import { triggerAutoBackup } from './backupStore';
 
 // Helper: Get Current KST Date
 export function getKSTDate(): {
@@ -200,6 +201,8 @@ export async function saveGateDutyMonth(record: GateDutyMonthRecord): Promise<vo
   try {
     localStorage.setItem(`gateDuty_${record.yearMonth}`, JSON.stringify(record));
   } catch {}
+
+  triggerAutoBackup(`교문지도 일정 수정 (${record.yearMonth})`);
 }
 
 /**

@@ -4,6 +4,7 @@ import { LunchDutyDay, LunchDutyMonthRecord } from '../types/lunchDuty';
 import defaultLunchData from '../data/defaultLunchDuties.json';
 import { getKSTDate } from './gateDutyStore';
 import * as XLSX from 'xlsx';
+import { triggerAutoBackup } from './backupStore';
 
 export function getDefaultLunchDuties(): LunchDutyMonthRecord {
   return defaultLunchData as LunchDutyMonthRecord;
@@ -129,6 +130,8 @@ export async function saveLunchDutyMonth(record: LunchDutyMonthRecord): Promise<
   try {
     localStorage.setItem(`lunchDuty_${record.yearMonth}`, JSON.stringify(record));
   } catch {}
+
+  triggerAutoBackup(`급식감독 일정 수정 (${record.yearMonth})`);
 }
 
 /**

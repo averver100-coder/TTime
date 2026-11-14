@@ -3,6 +3,7 @@ import { db } from './firebase';
 import { Teacher, ClassTimetable } from './timetableUtils';
 import defaultTeachersData from '../data/defaultTeachers.json';
 import defaultClassTimetablesData from '../data/defaultClassTimetables.json';
+import { triggerAutoBackup } from './backupStore';
 
 export const SWR_TEACHERS_CACHE_KEY = 'ssamtime_swr_teachers_v2';
 export const SWR_CLASSES_CACHE_KEY = 'ssamtime_swr_classes_v2';
@@ -331,6 +332,8 @@ export async function saveSingleTeacher(teacher: Teacher): Promise<void> {
   } catch (firestoreErr) {
     console.warn('Firestore single teacher save warning:', firestoreErr);
   }
+
+  triggerAutoBackup(`교원 정보 수정 (${cleanTeacher.name})`);
 }
 
 /**
@@ -362,6 +365,8 @@ export async function deleteSingleTeacher(teacherName: string): Promise<void> {
   } catch (firestoreErr) {
     console.warn('Firestore teacher delete warning:', firestoreErr);
   }
+
+  triggerAutoBackup(`교원 삭제 (${teacherName})`);
 }
 
 /**
@@ -434,6 +439,8 @@ export async function resetAndUploadTeachers(teachers: Teacher[]): Promise<void>
   } catch (firestoreErr) {
     console.warn('Firestore bulk sync warning:', firestoreErr);
   }
+
+  triggerAutoBackup(`교원 시간표 일괄 갱신 (${sorted.length}명)`);
 }
 
 /**
@@ -676,6 +683,8 @@ export async function saveClassTimetable(classItem: ClassTimetable): Promise<voi
   } catch (err) {
     console.warn('Firestore single class save warning:', err);
   }
+
+  triggerAutoBackup(`학급 시간표 수정 (${cleanClass.classCode})`);
 }
 
 /**
@@ -731,4 +740,6 @@ export async function resetAndUploadClassTimetables(classes: ClassTimetable[]): 
   } catch (err) {
     console.warn('Firestore bulk classes save warning:', err);
   }
+
+  triggerAutoBackup(`학급 시간표 일괄 갱신 (${sorted.length}개반)`);
 }

@@ -49,5 +49,29 @@ service cloud.firestore {
     match /auditLogs/{logId} {
       allow read, write: if true;
     }
+
+    function isValidBackupId(id) {
+      return id is string && id.size() >= 3 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidSystemBackup(data) {
+      return data.keys().hasAll(['id', 'backupType', 'createdAt', 'createdAtIso', 'createdBy', 'version', 'summary', 'payload'])
+        && data.keys().hasOnly(['id', 'backupType', 'createdAt', 'createdAtIso', 'createdBy', 'version', 'reason', 'label', 'excludedCollections', 'summary', 'payload', 'savedToServerDisk', 'serverFilename'])
+        && data.id is string && data.id.size() <= 128
+        && data.backupType in ['auto', 'manual']
+        && data.createdAt is number && data.createdAt > 0
+        && data.createdAtIso is string && data.createdAtIso.size() <= 64
+        && data.createdBy is string && data.createdBy.size() <= 150
+        && data.version is string && data.version.size() <= 64
+        && data.summary is map
+        && data.payload is map;
+    }
+
+    match /systemBackups/{backupId} {
+      allow read: if true;
+      allow create: if isValidBackupId(backupId) && isValidSystemBackup(request.resource.data);
+      allow update: if isValidBackupId(backupId) && isValidSystemBackup(request.resource.data);
+      allow delete: if isValidBackupId(backupId);
+    }
   }
 }

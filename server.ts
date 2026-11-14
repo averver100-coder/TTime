@@ -18,6 +18,18 @@ const PORT = 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Search engine blocking (SEO indexing disallow) - prevent Google/Naver indexing
+app.use((req, res, next) => {
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet');
+  next();
+});
+
+app.get('/robots.txt', (req, res) => {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send('User-agent: *\nDisallow: /\n');
+});
+
 // Initialize server-side Firestore instance for cloud synchronization
 let serverDb: ReturnType<typeof initServerFirestore> | null = null;
 try {
@@ -960,6 +972,219 @@ app.post('/api/backups/restore', (req, res) => {
   } catch (err) {
     console.error('Error restoring backup:', err);
     return res.status(500).json({ error: '백업 복원에 실패했습니다.' });
+  }
+});
+
+// Hybrid Full-System Snapshot Disk Endpoints (Auto 10 rotation + Manual permanent preservation)
+app.get('/api/system-backups', (req, res) => {
+  try {
+    ensureBackupDir();
+    const files = fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.startsWith('sysbackup_') && f.endsWith('.json'));
+
+    const records: any[] = [];
+    for (const f of files) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, f), 'utf-8'));
+        if (parsed && parsed.id && parsed.backupType) {
+          records.push({
+            ...parsed,
+            savedToServerDisk: true,
+            serverFilename: f,
+          });
+        }
+      } catch {}
+    }
+
+    records.sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
+    return res.json(records);
+  } catch (err) {
+    console.error('Error listing system backups:', err);
+    return res.status(500).json({ error: '시스템 백업 목록을 불러올 수 없습니다.' });
+  }
+});
+
+app.post('/api/system-backups', (req, res) => {
+  try {
+    const { backup } = req.body;
+    if (!backup || !backup.id || !backup.backupType || !backup.payload) {
+      return res.status(400).json({ error: '유효한 백업 데이터가 필요합니다.' });
+    }
+    if (backup.backupType !== 'auto' && backup.backupType !== 'manual') {
+      return res.status(400).json({ error: 'backupType은 auto 또는 manual이어야 합니다.' });
+    }
+
+    ensureBackupDir();
+    const safeId = String(backup.id).replace(/[^a-zA-Z0-9_\-]/g, '');
+    const filename = `sysbackup_${backup.backupType}_${safeId}.json`;
+    const filePath = path.join(BACKUP_DIR, filename);
+
+    // Strip auditLogs defensively even if sent
+    const cleanPayload = { ...backup.payload };
+    delete cleanPayload.auditLogs;
+
+    const recordToSave = {
+      ...backup,
+      id: safeId,
+      payload: cleanPayload,
+      savedToServerDisk: true,
+      serverFilename: filename,
+    };
+
+    fs.writeFileSync(filePath, JSON.stringify(recordToSave, null, 2), 'utf-8');
+
+    // Rotate ONLY auto disk snapshots (keep newest 10, never touch manual snapshots)
+    if (backup.backupType === 'auto') {
+      const autoFiles = fs.readdirSync(BACKUP_DIR)
+        .filter(f => f.startsWith('sysbackup_auto_') && f.endsWith('.json'))
+        .map(f => {
+          let createdAt = 0;
+          try {
+            const parsed = JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, f), 'utf-8'));
+            createdAt = Number(parsed.createdAt) || 0;
+          } catch {}
+          if (!createdAt) {
+            createdAt = fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs;
+          }
+          return { name: f, createdAt };
+        })
+        .sort((a, b) => b.createdAt - a.createdAt);
+
+      if (autoFiles.length > 10) {
+        for (const oldFile of autoFiles.slice(10)) {
+          try {
+            fs.unlinkSync(path.join(BACKUP_DIR, oldFile.name));
+          } catch {}
+        }
+      }
+    }
+
+    return res.json({ success: true, serverFilename: filename, id: safeId });
+  } catch (err) {
+    console.error('Error saving system backup to disk:', err);
+    return res.status(500).json({ error: '서버 디스크 백업 저장에 실패했습니다.' });
+  }
+});
+
+app.delete('/api/system-backups/:id', (req, res) => {
+  try {
+    const safeId = String(req.params.id || '').replace(/[^a-zA-Z0-9_\-]/g, '');
+    if (!safeId) {
+      return res.status(400).json({ error: '유효한 백업 ID가 필요합니다.' });
+    }
+    ensureBackupDir();
+    const files = fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.startsWith('sysbackup_') && f.endsWith(`_${safeId}.json`));
+
+    for (const f of files) {
+      try {
+        fs.unlinkSync(path.join(BACKUP_DIR, f));
+      } catch {}
+    }
+
+    return res.json({ success: true, deletedCount: files.length });
+  } catch (err) {
+    console.error('Error deleting system backup from disk:', err);
+    return res.status(500).json({ error: '서버 디스크 백업 삭제에 실패했습니다.' });
+  }
+});
+
+app.post('/api/system-backups/restore-disk', (req, res) => {
+  try {
+    const { payload } = req.body || {};
+    if (!payload || typeof payload !== 'object') {
+      return res.status(400).json({ error: '복원할 페이로드가 필요합니다.' });
+    }
+
+    const dataDir = path.join(process.cwd(), 'src', 'data');
+
+    if (Array.isArray(payload.teachers)) {
+      const teachersPath = path.join(dataDir, 'defaultTeachers.json');
+      if (fs.existsSync(teachersPath)) {
+        try {
+          const prevTeachers = JSON.parse(fs.readFileSync(teachersPath, 'utf-8'));
+          createTeacherBackup(prevTeachers, 'before_system_restore');
+        } catch {}
+      }
+      const sortedTeachers = [...payload.teachers].sort((a: any, b: any) =>
+        String(a.name || '').localeCompare(String(b.name || ''), 'ko')
+      );
+      fs.writeFileSync(teachersPath, JSON.stringify(sortedTeachers, null, 2), 'utf-8');
+    }
+
+    if (Array.isArray(payload.classes)) {
+      const classesPath = path.join(dataDir, 'defaultClassTimetables.json');
+      const sortedClasses = [...payload.classes].sort((a: any, b: any) =>
+        String(a.classCode || '').localeCompare(String(b.classCode || ''), 'ko', { numeric: true })
+      );
+      fs.writeFileSync(classesPath, JSON.stringify(sortedClasses, null, 2), 'utf-8');
+    }
+
+    if (Array.isArray(payload.whitelist)) {
+      fs.writeFileSync(WHITELIST_FILE, JSON.stringify(payload.whitelist, null, 2), 'utf-8');
+    }
+
+    if (Array.isArray(payload.gateDuties)) {
+      for (const rec of payload.gateDuties) {
+        if (rec && rec.yearMonth) {
+          fs.writeFileSync(
+            path.join(dataDir, `gateDuties_${rec.yearMonth}.json`),
+            JSON.stringify(rec, null, 2),
+            'utf-8'
+          );
+          if (rec.yearMonth === '2026-09') {
+            fs.writeFileSync(
+              path.join(dataDir, 'defaultGateDuties.json'),
+              JSON.stringify(rec, null, 2),
+              'utf-8'
+            );
+          }
+        }
+      }
+    }
+
+    if (Array.isArray(payload.lunchDuties)) {
+      for (const rec of payload.lunchDuties) {
+        if (rec && rec.yearMonth) {
+          fs.writeFileSync(
+            path.join(dataDir, `lunchDuties_${rec.yearMonth}.json`),
+            JSON.stringify(rec, null, 2),
+            'utf-8'
+          );
+          if (rec.yearMonth === '2026-09') {
+            fs.writeFileSync(
+              path.join(dataDir, 'defaultLunchDuties.json'),
+              JSON.stringify(rec, null, 2),
+              'utf-8'
+            );
+          }
+        }
+      }
+    }
+
+    if (Array.isArray(payload.meals)) {
+      for (const rec of payload.meals) {
+        if (rec && rec.yearMonth) {
+          fs.writeFileSync(
+            path.join(dataDir, `meals_${rec.yearMonth}.json`),
+            JSON.stringify(rec, null, 2),
+            'utf-8'
+          );
+          if (rec.yearMonth === '2026-09') {
+            fs.writeFileSync(
+              path.join(dataDir, 'defaultMeals.json'),
+              JSON.stringify(rec, null, 2),
+              'utf-8'
+            );
+          }
+        }
+      }
+    }
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Error restoring system backup to disk:', err);
+    return res.status(500).json({ error: '디스크 복원 반영 중 오류가 발생했습니다.' });
   }
 });
 

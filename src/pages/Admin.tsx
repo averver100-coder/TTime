@@ -4,7 +4,7 @@ import {
   Upload, Trash2, ArrowLeft, Eye, EyeOff, KeyRound, UserPlus, Edit3, X, Check, 
   User, Crown, Shield, LogOut, Search, Download, RotateCcw, ShieldCheck, History, 
   FileDown, FileSpreadsheet, GraduationCap, CalendarDays, Users, Save, CheckCircle, Bell, BellOff,
-  Mail, ArrowRight, AlertCircle, UserCheck, Smartphone, Globe, ExternalLink, RefreshCw, Copy
+  Mail, ArrowRight, AlertCircle, UserCheck, Smartphone, Globe, ExternalLink, RefreshCw, Copy, Database
 } from 'lucide-react';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { PWAInstallButton } from '../components/PWAInstallButton';
@@ -15,16 +15,17 @@ import { AdminScheduleAlertSender } from '../components/AdminScheduleAlertSender
 import { AdminAuditLogViewer } from '../components/AdminAuditLogViewer';
 import { AdminWhitelistManager } from '../components/AdminWhitelistManager';
 import { AdminPushPopupControl } from '../components/AdminPushPopupControl';
+import { AdminBackupDashboard } from '../components/AdminBackupDashboard';
 import { TodayScheduleNotificationToast } from '../components/TodayScheduleNotificationToast';
 import { Footer } from '../components/Footer';
 import { usePushPopupConfig, updatePushPopupConfig } from '../lib/pushConfigStore';
 import { Teacher, ClassTimetable, DayOfWeek, dayNames, periods, KOREAN_CONSONANTS, getChosung, matchKorean, formatClassTitle, matchClassCode, getClassMatchScore, getDayFromIndex } from '../lib/timetableUtils';
 import { 
   fetchTeachers, saveSingleTeacher, deleteSingleTeacher, resetAndUploadTeachers, 
-  fetchBackups, createManualBackup, 
-  restoreBackup, BackupItem, fetchClassTimetables, saveClassTimetable, 
+  fetchClassTimetables, saveClassTimetable, 
   resetAndUploadClassTimetables, getDefaultClassTimetables 
 } from '../lib/store';
+import { backupData } from '../lib/backupStore';
 import { exportTimetableToExcel, exportClassTimetablesToExcel } from '../lib/excelExport';
 import { parseClassTimetableExcel } from '../lib/excelClassParser';
 import { AdminUser } from '../types/auth';
@@ -52,8 +53,7 @@ import {
   SUPERADMIN_EMAIL,
   buildSuperAdminUser
 } from '../lib/ssoAuth';
-import { usePWAUpdate, simulatePWAUpdateForTest } from '../lib/pwaUpdateManager';
-import { getAppReleaseVersion, showVersionToast } from '../lib/version';
+import { simulatePWAUpdateForTest } from '../lib/pwaUpdateManager';
 import { auth } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -79,30 +79,16 @@ export const Admin: React.FC = () => {
   const inAppInfo = useMemo(() => detectInAppBrowser(), []);
 
   // Navigation tab
-  const [adminTab, setAdminTab] = useState<'classes' | 'teachers' | 'duties' | 'alerts' | 'audit' | 'whitelist'>('classes');
+  const [adminTab, setAdminTab] = useState<'classes' | 'teachers' | 'duties' | 'alerts' | 'backups' | 'whitelist'>('classes');
 
   const [showResetModal, setShowResetModal] = useState(false);
-  const { checkForUpdate, isChecking: isCheckingUpdate } = usePWAUpdate();
-  const [updateCheckToast, setUpdateCheckToast] = useState<string | null>(null);
 
   // Push popup preview and configuration
   const [isPreviewPushPopupOpen, setIsPreviewPushPopupOpen] = useState(false);
   const { showPushPopup, loading: isPushPopupConfigLoading } = usePushPopupConfig();
 
   const [copiedDomain, setCopiedDomain] = useState(false);
-
-  const handleAdminCheckUpdate = async () => {
-    const releaseVer = getAppReleaseVersion();
-    const hasUpdate = await checkForUpdate();
-    if (!hasUpdate) {
-      setUpdateCheckToast(`최신 (${releaseVer})`);
-      showVersionToast(releaseVer, false);
-      setTimeout(() => setUpdateCheckToast(null), 3500);
-    } else {
-      setUpdateCheckToast('업데이트 발견');
-      setTimeout(() => setUpdateCheckToast(null), 3500);
-    }
-  };
+  const [isCreatingTopSnapshot, setIsCreatingTopSnapshot] = useState(false);
 
   // Auto-restore session from storage & check srider.kr cross-subdomain SSO & Google OAuth redirect
   useEffect(() => {
@@ -264,10 +250,6 @@ export const Admin: React.FC = () => {
   const [selectedClassCode, setSelectedClassCode] = useState<string>('101');
   const [editingClass, setEditingClass] = useState<ClassTimetable | null>(null);
   const [classSearchTerm, setClassSearchTerm] = useState('');
-
-  const [showBackupModal, setShowBackupModal] = useState(false);
-  const [backups, setBackups] = useState<BackupItem[]>([]);
-  const [loadingBackups, setLoadingBackups] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -631,64 +613,32 @@ export const Admin: React.FC = () => {
   };
 
   const handleCreateManualBackup = async () => {
+    if (isCreatingTopSnapshot) return;
+    setIsCreatingTopSnapshot(true);
     setLoading(true);
     try {
-      await createManualBackup();
+      const result = await backupData('manual', {
+        createdBy: currentUser?.email || DEFAULT_SUPERADMIN_EMAIL,
+        label: '수동 영구 스냅샷',
+        reason: '관리자 화면 확정 스냅샷 생성',
+      });
 
-      await logAuditEvent({
-        operatorId: currentUser?.email || DEFAULT_SUPERADMIN_EMAIL,
-        operatorName: currentUser?.name || '관리자',
-        action: '수동 백업 스냅샷 생성',
-        target: '전체 시간표 데이터',
-        summary: `현재 ${teachers.length}명의 시간표 상태를 수동 백업 스냅샷으로 생성 보존`,
-        category: 'system'
-      }).catch(() => {});
+      if (result.created && result.backup) {
+        await logAuditEvent({
+          operatorId: currentUser?.email || DEFAULT_SUPERADMIN_EMAIL,
+          operatorName: currentUser?.name || '관리자',
+          action: '수동 영구 스냅샷 생성',
+          target: result.backup.id,
+          summary: `현재 핵심 데이터(교원 ${result.backup.summary.teacherCount}명 · 학급 ${result.backup.summary.classCount}개반 · 감사로그 제외)를 수동 영구 스냅샷으로 생성 보존`,
+          category: 'system'
+        }).catch(() => {});
 
-      setMessage(`현재 ${teachers.length}명의 시간표가 안전하게 스냅샷 백업되었습니다.`);
-      window.alert(`현재 ${teachers.length}명의 시간표가 안전하게 백업되었습니다!`);
+        setMessage(`확정 스냅샷이 중요 영구 보관함에 안전하게 저장되었습니다. (교원 ${result.backup.summary.teacherCount}명 · 학급 ${result.backup.summary.classCount}개반 · 자동 삭제 제외)`);
+      }
     } catch (err) {
-      setMessage('수동 백업 생성에 실패했습니다.');
+      setMessage('수동 영구 스냅샷 생성에 실패했습니다.');
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleOpenBackupModal = async () => {
-    setShowBackupModal(true);
-    setLoadingBackups(true);
-    try {
-      const list = await fetchBackups();
-      setBackups(list);
-    } catch (err) {
-      console.warn('Failed to load backups:', err);
-    } finally {
-      setLoadingBackups(false);
-    }
-  };
-
-  const handleRestoreBackupClick = async (filename: string, count: number) => {
-    if (!window.confirm(`선택한 백업 파일(${count}명)로 시간표를 복원하시겠습니까?`)) return;
-    setLoading(true);
-    try {
-      const restored = await restoreBackup(filename);
-      setTeachers(restored);
-      setShowBackupModal(false);
-
-      await logAuditEvent({
-        operatorId: currentUser?.email || DEFAULT_SUPERADMIN_EMAIL,
-        operatorName: currentUser?.name || '관리자',
-        action: '시간표 백업 복원',
-        target: filename,
-        summary: `백업 파일 [${filename}] (${count}명)으로 시간표 데이터 복원 실행`,
-        category: 'system'
-      }).catch(() => {});
-
-      setMessage(`성공적으로 ${restored.length}명의 시간표 데이터로 복원되었습니다.`);
-      window.alert(`성공적으로 ${restored.length}명의 시간표 데이터가 복원되었습니다!`);
-    } catch (err) {
-      setMessage('백업 복원 중 오류가 발생했습니다.');
-      window.alert('백업 복원에 실패했습니다.');
-    } finally {
+      setIsCreatingTopSnapshot(false);
       setLoading(false);
     }
   };
@@ -1002,7 +952,7 @@ export const Admin: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
           <div className="flex items-center gap-3">
             <button onClick={() => navigate('/')} className="p-2 hover:bg-gray-200 rounded-full transition cursor-pointer" title="메인으로">
@@ -1014,43 +964,38 @@ export const Admin: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full text-xs font-bold shadow-2xs">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>Google 화이트리스트 보안 인증</span>
-            </div>
-
+          <div className="flex items-center gap-2 flex-wrap">
             {currentUser?.role === 'superadmin' ? (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-300 text-amber-900 rounded-full text-xs font-bold shadow-2xs">
-                <Crown className="w-4 h-4 text-amber-600" />
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-300 text-amber-900 rounded-full text-xs font-bold shadow-2xs whitespace-nowrap shrink-0">
+                <Crown className="w-4 h-4 text-amber-600 shrink-0" />
                 <span>최고관리자 ({currentUser.email || currentUser.id})</span>
               </div>
             ) : currentUser?.role === 'admin' ? (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-800 rounded-full text-xs font-bold shadow-2xs">
-                <Shield className="w-4 h-4 text-blue-600" />
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-800 rounded-full text-xs font-bold shadow-2xs whitespace-nowrap shrink-0">
+                <Shield className="w-4 h-4 text-blue-600 shrink-0" />
                 <span>관리자 ({currentUser.email || currentUser.id})</span>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 border border-purple-200 text-purple-800 rounded-full text-xs font-bold shadow-2xs">
-                <UserCheck className="w-4 h-4 text-purple-600" />
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 border border-purple-200 text-purple-800 rounded-full text-xs font-bold shadow-2xs whitespace-nowrap shrink-0">
+                <UserCheck className="w-4 h-4 text-purple-600 shrink-0" />
                 <span>교직원 ({currentUser?.email || currentUser?.id})</span>
               </div>
             )}
 
+            {/* Top Manual Permanent Snapshot Button */}
             <button
               type="button"
-              onClick={handleAdminCheckUpdate}
-              disabled={isCheckingUpdate}
-              className="flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 bg-white hover:bg-blue-50 border border-gray-200 hover:border-blue-200 px-3 py-1.5 rounded-lg transition shadow-2xs cursor-pointer disabled:opacity-50"
-              title="새로운 버전 배포 여부 확인"
+              onClick={handleCreateManualBackup}
+              disabled={isCreatingTopSnapshot || loading}
+              className="flex items-center gap-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 border border-amber-700/20 px-3 py-1.5 rounded-lg transition shadow-2xs cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
+              title="현재 핵심 데이터를 자동 삭제 대상에서 제외되는 영구 스냅샷으로 즉시 저장합니다"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin text-blue-600' : ''}`} />
-              <span>{isCheckingUpdate ? '확인 중...' : updateCheckToast || '업데이트 확인'}</span>
+              <Database className="w-3.5 h-3.5 shrink-0" />
+              <span>{isCreatingTopSnapshot ? '생성 중...' : '확정 스냅샷 생성'}</span>
             </button>
 
             {/* Quick Push Popup Control in Admin Header */}
-            <div className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-2xs">
-              <span className="text-gray-600 hidden sm:inline">푸시창:</span>
+            <div className="flex items-center bg-gray-50 border border-gray-200 px-2 py-1 rounded-lg text-xs font-semibold shadow-2xs shrink-0">
               <select
                 value={showPushPopup ? 'enabled' : 'disabled'}
                 disabled={isPushPopupConfigLoading}
@@ -1078,20 +1023,36 @@ export const Admin: React.FC = () => {
               <button
                 type="button"
                 onClick={simulatePWAUpdateForTest}
-                className="hidden sm:flex items-center gap-1 text-[11px] text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1.5 rounded-lg transition shadow-2xs cursor-pointer"
+                className="hidden sm:flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1.5 rounded-lg transition shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
                 title="PWA 업데이트 팝업 미리보기 테스트"
               >
                 <span>팝업 테스트</span>
               </button>
             )}
 
+            {isSuperAdminUser(currentUser?.email) && (
+              <button
+                type="button"
+                onClick={() => setAdminTab(prev => (prev === 'whitelist' ? 'classes' : 'whitelist'))}
+                className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition shadow-2xs cursor-pointer whitespace-nowrap shrink-0 ${
+                  adminTab === 'whitelist'
+                    ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
+                    : 'text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
+                }`}
+                title="Google 로그인 승인 계정(화이트리스트) 관리"
+              >
+                <UserCheck className="w-3.5 h-3.5 shrink-0" />
+                <span>Google 승인 계정 관리</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleLogout}
-              className="flex items-center gap-1 text-xs text-gray-600 hover:text-red-600 bg-white hover:bg-red-50 border border-gray-200 hover:border-red-200 px-3 py-1.5 rounded-lg transition shadow-2xs cursor-pointer"
+              className="flex items-center gap-1 text-xs text-gray-600 hover:text-red-600 bg-white hover:bg-red-50 border border-gray-200 hover:border-red-200 px-3 py-1.5 rounded-lg transition shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
               title="로그아웃"
             >
-              <LogOut className="w-3.5 h-3.5" />
+              <LogOut className="w-3.5 h-3.5 shrink-0" />
               <span>로그아웃</span>
             </button>
           </div>
@@ -1147,101 +1108,85 @@ export const Admin: React.FC = () => {
           </div>
         )}
 
-        {/* Admin Navigation Tabs */}
-        <div className="flex items-center gap-1.5 p-1.5 bg-gray-200/80 rounded-2xl mb-6 overflow-x-auto shadow-inner">
+        {/* Admin Navigation Tabs (5-tab responsive layout, zero horizontal scroll) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5 p-1.5 bg-gray-200/80 rounded-2xl mb-6 shadow-inner">
           <button
             type="button"
             onClick={() => setAdminTab('classes')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 px-2.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
               adminTab === 'classes'
                 ? 'bg-white text-indigo-700 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
             }`}
           >
-            <GraduationCap className="w-4 h-4 text-indigo-600" />
-            <span>학년반별 수업시간표 (엑셀)</span>
-            <span className="text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-bold">
-              {classes.length}개반
+            <GraduationCap className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span>수업시간표(학년반)</span>
+            <span className="hidden lg:inline-flex text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-bold tabular-nums">
+              {classes.length}
             </span>
           </button>
 
           <button
             type="button"
             onClick={() => setAdminTab('teachers')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 px-2.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
               adminTab === 'teachers'
                 ? 'bg-white text-blue-700 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
             }`}
           >
-            <Users className="w-4 h-4 text-blue-600" />
-            <span>선생님 시간표 관리</span>
-            <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-700 rounded-full font-bold">
-              {teachers.length}명
+            <Users className="w-4 h-4 text-blue-600 shrink-0" />
+            <span>선생님 시간표</span>
+            <span className="hidden lg:inline-flex text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-700 rounded-full font-bold tabular-nums">
+              {teachers.length}
             </span>
           </button>
 
           <button
             type="button"
             onClick={() => setAdminTab('duties')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 px-2.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
               adminTab === 'duties'
                 ? 'bg-white text-emerald-700 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
             }`}
           >
-            <CalendarDays className="w-4 h-4 text-emerald-600" />
-            <span>교문·급식 지도 및 식단표 관리</span>
+            <CalendarDays className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>교문·급식·식단표</span>
           </button>
 
           <button
             type="button"
             onClick={() => setAdminTab('alerts')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 px-2.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
               adminTab === 'alerts'
                 ? 'bg-white text-rose-700 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
             }`}
           >
-            <Bell className="w-4 h-4 text-rose-600" />
-            <span>푸시 팝업 설정 및 수업변경 알림</span>
-            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
+            <Bell className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>푸시 설정</span>
+            <span className={`hidden lg:inline-flex text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
               showPushPopup 
                 ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
                 : 'bg-rose-100 text-rose-800 border-rose-300'
             }`}>
-              {showPushPopup ? '푸시창 켜짐' : '푸시창 꺼짐'}
+              {showPushPopup ? '켜짐' : '꺼짐'}
             </span>
           </button>
 
           <button
             type="button"
-            onClick={() => setAdminTab('audit')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
-              adminTab === 'audit'
-                ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-indigo-100'
+            onClick={() => setAdminTab('backups')}
+            className={`col-span-2 sm:col-span-2 md:col-span-1 flex items-center justify-center gap-1.5 px-2.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+              adminTab === 'backups'
+                ? 'bg-white text-amber-700 shadow-sm ring-1 ring-amber-200'
                 : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
             }`}
           >
-            <History className="w-4 h-4 text-indigo-600" />
-            <span>변경 이력 및 감사 로그</span>
+            <Database className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>백업·복구</span>
           </button>
-
-          {/* TAB: Google 승인 계정 관리 (화이트리스트) - 최고관리자(averver100@gmail.com) 전용 */}
-          {isSuperAdminUser(currentUser?.email) && (
-            <button
-              type="button"
-              onClick={() => setAdminTab('whitelist')}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
-                adminTab === 'whitelist'
-                  ? 'bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-100'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
-              }`}
-            >
-              <UserCheck className="w-4 h-4 text-emerald-600" />
-              <span>Google 승인 계정 관리</span>
-            </button>
-          )}
         </div>
 
         {message && (
@@ -1603,20 +1548,20 @@ export const Admin: React.FC = () => {
               <button
                 type="button"
                 onClick={handleCreateManualBackup}
-                disabled={loading || teachers.length === 0}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-blue-50 border border-blue-300 text-blue-800 rounded-xl text-xs font-bold shadow-2xs transition hover:border-blue-400"
-                title="현재 상태를 서버 스냅샷으로 즉시 백업합니다"
+                disabled={isCreatingTopSnapshot || loading || teachers.length === 0}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-amber-50 border border-amber-300 text-amber-800 rounded-xl text-xs font-bold shadow-2xs transition hover:border-amber-400 cursor-pointer"
+                title="현재 상태를 중요 영구 보관함에 수동 스냅샷으로 즉시 저장합니다"
               >
-                <Download className="w-4 h-4 text-blue-600" />
-                현재 상태 즉시 백업
+                <Download className="w-4 h-4 text-amber-600" />
+                확정 스냅샷 즉시 백업
               </button>
 
               <button
                 type="button"
-                onClick={handleOpenBackupModal}
+                onClick={() => setAdminTab('backups')}
                 disabled={loading}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-gray-100 border border-gray-300 text-gray-700 rounded-xl text-xs font-bold shadow-2xs transition"
-                title="과거에 저장된 백업 목록을 확인하고 원하는 시점으로 복원합니다"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-gray-100 border border-gray-300 text-gray-700 rounded-xl text-xs font-bold shadow-2xs transition cursor-pointer"
+                title="서버 자동 순환 백업 및 중요 영구 보관함 대시보드로 이동합니다"
               >
                 <History className="w-4 h-4 text-gray-600" />
                 백업 기록 보기 및 복원
@@ -1838,9 +1783,21 @@ export const Admin: React.FC = () => {
         </div>
       )}
 
-      {/* TAB: 변경 이력 및 감사 로그 (Audit Log) & 데이터 초기화 위험 구역 */}
-      {adminTab === 'audit' && (
+      {/* TAB: 백업·복구 · 변경 이력 및 감사 로그 · 데이터 초기화 위험 구역 */}
+      {adminTab === 'backups' && (
         <div className="space-y-6">
+          <AdminBackupDashboard
+            currentOperatorEmail={currentUser?.email || currentUser?.id}
+            currentOperatorName={currentUser?.name}
+            onMessage={(msg) => setMessage(msg)}
+            onRestored={({ teachers: restoredTeachers, classes: restoredClasses }) => {
+              setTeachers(restoredTeachers);
+              if (restoredClasses.length > 0) {
+                setClasses(restoredClasses);
+              }
+            }}
+          />
+
           <AdminAuditLogViewer onMessage={(msg) => setMessage(msg)} />
 
           {/* Danger Zone: 시간표 데이터 초기화 */}
@@ -2085,93 +2042,6 @@ export const Admin: React.FC = () => {
                 className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl transition shadow-xs"
               >
                 <Check className="w-4 h-4" /> 저장하기
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Backup History and Restore Modal */}
-      {showBackupModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-gray-100 space-y-4 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b pb-3">
-              <div className="flex items-center gap-2">
-                <History className="w-5 h-5 text-gray-700" />
-                <h3 className="text-lg font-bold text-gray-900">시간표 백업 기록 및 복원</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowBackupModal(false)}
-                className="p-1 hover:bg-gray-100 rounded-lg text-gray-500 transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-gray-500 leading-relaxed">
-              수정이나 업로드 시 서버에 안전하게 자동 저장된 백업 스냅샷 목록입니다. 언제든지 과거 시점의 데이터로 완벽하게 되돌릴 수 있습니다.
-            </p>
-
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[200px]">
-              {loadingBackups ? (
-                <div className="text-center py-12 text-sm text-gray-500">백업 목록을 불러오는 중...</div>
-              ) : backups.length === 0 ? (
-                <div className="text-center py-12 text-sm text-gray-400 bg-gray-50 rounded-xl">
-                  아직 저장된 백업 스냅샷이 없습니다.<br />
-                  <span className="text-xs text-gray-400">('현재 상태 즉시 백업'을 클릭하시면 지금 바로 백업이 생성됩니다)</span>
-                </div>
-              ) : (
-                backups.map((b) => (
-                  <div key={b.filename} className="p-3.5 bg-gray-50 hover:bg-gray-100/80 rounded-xl border border-gray-200/70 flex items-center justify-between gap-3 transition">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-gray-800">
-                          {new Date(b.createdAt).toLocaleString('ko-KR', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </span>
-                        <span className="px-2 py-0.5 text-[11px] bg-emerald-100 text-emerald-800 font-bold rounded-md">
-                          {b.teacherCount}명 보존
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-gray-400 font-mono mt-0.5 truncate max-w-[240px]">
-                        {b.filename}
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleRestoreBackupClick(b.filename, b.teacherCount)}
-                      disabled={loading}
-                      className="shrink-0 flex items-center gap-1 text-xs px-3 py-1.5 bg-white hover:bg-emerald-50 border border-emerald-300 text-emerald-700 font-semibold rounded-lg shadow-2xs transition"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" /> 복원
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="pt-3 border-t flex justify-between items-center">
-              <button
-                type="button"
-                onClick={handleCreateManualBackup}
-                disabled={loading}
-                className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-              >
-                + 지금 즉시 새 백업 만들기
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowBackupModal(false)}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-xl transition"
-              >
-                닫기
               </button>
             </div>
           </div>

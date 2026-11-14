@@ -30,6 +30,7 @@ import {
   SSO_PERSISTENT_STORAGE_KEY,
   SUPERADMIN_EMAIL
 } from './ssoAuth';
+import { triggerAutoBackup } from './backupStore';
 
 export const DEFAULT_SUPERADMIN_EMAIL = 'averver100@gmail.com';
 export const SWR_WHITELIST_CACHE_KEY = 'ssamtime_swr_whitelist_v3';
@@ -997,6 +998,8 @@ export async function saveWhitelistUser(
       category: 'whitelist'
     }).catch(() => {});
   }
+
+  triggerAutoBackup(`승인 계정 등록/수정 (${cleanEmail})`, cleanOperator);
 }
 
 /**
@@ -1050,6 +1053,8 @@ export async function deleteWhitelistUser(email: string, operatorId: string): Pr
     summary: `Google 계정 [${cleanEmail}]의 관리자 화이트리스트 접근 권한을 Firestore DB에서 실시간 삭제 회수하였습니다.`,
     category: 'whitelist'
   }).catch(() => {});
+
+  triggerAutoBackup(`승인 계정 삭제 (${cleanEmail})`, cleanOperator);
 }
 
 // ==========================================

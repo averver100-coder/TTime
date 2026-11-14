@@ -89,6 +89,27 @@
         "category": { "type": "string" }
       },
       "required": ["operatorId", "timestamp", "action", "summary"]
+    },
+    "SystemBackup": {
+      "title": "SystemBackup",
+      "description": "Hybrid auto-rotating (max 10) and manual permanent system snapshot excluding auditLogs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "backupType": { "type": "string", "enum": ["auto", "manual"] },
+        "createdAt": { "type": "number" },
+        "createdAtIso": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "version": { "type": "string" },
+        "reason": { "type": "string" },
+        "label": { "type": "string" },
+        "excludedCollections": { "type": "array" },
+        "summary": { "type": "object" },
+        "payload": { "type": "object" },
+        "savedToServerDisk": { "type": "boolean" },
+        "serverFilename": { "type": "string" }
+      },
+      "required": ["id", "backupType", "createdAt", "createdAtIso", "createdBy", "version", "summary", "payload"]
     }
   },
   "firestore": {
@@ -121,6 +142,12 @@
         "$ref": "#/entities/AuditLog"
       },
       "description": "Stores audit logs recording operator email, timestamp, action performed, and change summary."
+    },
+    "systemBackups/{backupId}": {
+      "schema": {
+        "$ref": "#/entities/SystemBackup"
+      },
+      "description": "Stores auto-rotating and manual permanent system backups excluding auditLogs."
     }
   }
 }

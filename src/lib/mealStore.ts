@@ -6,6 +6,7 @@ import meals202611 from '../data/meals_2026-11.json';
 import meals202610 from '../data/meals_2026-10.json';
 import { getKSTDate } from './gateDutyStore';
 import * as XLSX from 'xlsx';
+import { triggerAutoBackup } from './backupStore';
 
 export function getDefaultMeals(): MealMonthRecord {
   return defaultMealData as MealMonthRecord;
@@ -198,12 +199,17 @@ export async function saveMealMonth(record: MealMonthRecord): Promise<boolean> {
       const verifySnap = await getDocFromServer(docRef);
       if (verifySnap.exists()) {
         console.log(`[MealStore] Verified: meals/${record.yearMonth} is live on Firestore server.`);
+        triggerAutoBackup(`급식 식단표 수정 (${record.yearMonth})`);
         return true;
       }
     } catch {}
+    triggerAutoBackup(`급식 식단표 수정 (${record.yearMonth})`);
     return true;
   }
 
+  if (localSaved) {
+    triggerAutoBackup(`급식 식단표 수정 (${record.yearMonth})`);
+  }
   return localSaved;
 }
 
@@ -227,6 +233,7 @@ export async function syncMealRecordToCloud(record: MealMonthRecord): Promise<{ 
     // Update local storage
     localStorage.setItem(`meal_${record.yearMonth}`, JSON.stringify(record));
 
+    triggerAutoBackup(`급식 식단표 클라우드 동기화 (${record.yearMonth})`);
     return { success: true };
   } catch (err: any) {
     // If client SDK failed, try server-side route
@@ -237,6 +244,7 @@ export async function syncMealRecordToCloud(record: MealMonthRecord): Promise<{ 
         body: JSON.stringify({ record }),
       });
       if (res.ok) {
+        triggerAutoBackup(`급식 식단표 클라우드 동기화 (${record.yearMonth})`);
         return { success: true };
       }
       const data = await res.json().catch(() => null);
