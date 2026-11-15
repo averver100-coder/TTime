@@ -751,11 +751,13 @@ app.post('/api/classes/single', (req, res) => {
 app.get('/api/sso/session', (req, res) => {
   try {
     const cookieHeader = req.headers.cookie || '';
+    const authHeader = String(req.headers.authorization || '');
+    const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
     const masterMatch = cookieHeader.match(/(?:^|;\s*)master_sso_token=([^;]+)/);
     const match = cookieHeader.match(/(?:^|;\s*)srider_sso_session=([^;]+)/);
     const superMatch = cookieHeader.match(/(?:^|;\s*)srider_superadmin_auth=([^;]+)/);
 
-    if (masterMatch && masterMatch[1]?.trim()) {
+    if ((masterMatch && masterMatch[1]?.trim()) || (bearerMatch && bearerMatch[1]?.trim())) {
       return res.json({
         authenticated: true,
         user: {
