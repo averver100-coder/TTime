@@ -2284,6 +2284,27 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
+
+    // Sync active server version metadata to Firestore for instant onSnapshot client update notifications
+    if (serverDb) {
+      const vInfo = getVersionInfo();
+      const targetDocId = process.env.NODE_ENV === 'production' ? 'appVersion' : 'appVersionDev';
+      serverSetDoc(
+        serverDoc(serverDb, 'admin', targetDocId),
+        {
+          version: vInfo.version,
+          releaseDate: vInfo.releaseDate,
+          patch: vInfo.patch,
+          buildId: vInfo.buildId,
+          buildTime: vInfo.buildTime,
+          environment: process.env.NODE_ENV || 'development',
+          syncedAt: Date.now(),
+        },
+        { merge: true }
+      ).catch((err) => {
+        console.debug('[Server] Firestore appVersion sync notice:', err);
+      });
+    }
   });
 }
 

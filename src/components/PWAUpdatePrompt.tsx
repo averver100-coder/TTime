@@ -304,7 +304,7 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({
     setNeedRefresh(false);
     onClearExternalUpdate?.();
 
-    // Purge cached assets and stale Service Worker registrations so updated chunks are fetched cleanly
+    // 1. Purge all browser CacheStorage caches so old HTML/JS/CSS chunks cannot linger
     try {
       if ('caches' in window) {
         const keys = await caches.keys();
@@ -314,31 +314,37 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({
       console.debug('[PWAUpdatePrompt] Cache clear notice:', err);
     }
 
-    // Direct SKIP_WAITING broadcast to all waiting workers
+    // 2. Broadcast SKIP_WAITING & trigger updateServiceWorker
     try {
       await broadcastSkipWaitingToAllWorkers();
     } catch (err) {
       console.debug('[PWAUpdatePrompt] Service worker skipWaiting broadcast error:', err);
     }
 
-    // Trigger updateServiceWorker and unregister stale workers as fallback
     try {
       await updateServiceWorker(true);
     } catch (err) {
       console.debug('[PWAUpdatePrompt] updateServiceWorker execution error:', err);
     }
 
+    // 3. Unregister all Service Workers so legacy SW navigation routes never serve cached old index.html
     try {
       if ('serviceWorker' in navigator) {
         const regs = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(regs.map((r) => r.update().catch(() => {})));
+        await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
       }
     } catch {}
 
-    // Force fresh reload
+    // 4. Hard cache-busted navigation to guarantee loading the brand-new deployed bundle
     setTimeout(() => {
-      window.location.reload();
-    }, 350);
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('_upd', String(Date.now()));
+        window.location.replace(url.toString());
+      } catch {
+        window.location.reload();
+      }
+    }, 180);
   };
 
   const handleDismiss = () => {
