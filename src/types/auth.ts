@@ -2,8 +2,10 @@ export type AdminRole = 'superadmin' | 'admin' | 'teacher';
 
 export interface AdminUser {
   id: string;
+  uid?: string;
   email: string;
   name: string;
+  displayName?: string;
   role: AdminRole;
   roleName: string;
   department?: string;

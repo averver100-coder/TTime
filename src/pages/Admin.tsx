@@ -51,7 +51,10 @@ import {
   getSisterSubdomainSSOLink, 
   SISTER_SUBDOMAINS,
   SUPERADMIN_EMAIL,
-  buildSuperAdminUser
+  buildSuperAdminUser,
+  getMasterSSOToken,
+  buildMasterSSOMockUser,
+  clearMasterSSOTokenCookie
 } from '../lib/ssoAuth';
 import { simulatePWAUpdateForTest } from '../lib/pwaUpdateManager';
 import { auth } from '../lib/firebase';
@@ -94,7 +97,26 @@ export const Admin: React.FC = () => {
   useEffect(() => {
     let isMounted = true;
     const initAuth = async () => {
-      // 1. Check local session storage first
+      // 0. Highest-priority check: master_sso_token cookie bypass -> immediately inject SuperAdmin Mock User
+      const masterToken = getMasterSSOToken();
+      if (masterToken) {
+        const masterMockUser = buildMasterSSOMockUser();
+        if (typeof window !== 'undefined') {
+          try {
+            sessionStorage.setItem(CURRENT_ADMIN_STORAGE_KEY, JSON.stringify(masterMockUser));
+            localStorage.setItem(CURRENT_ADMIN_STORAGE_KEY, JSON.stringify(masterMockUser));
+            sessionStorage.removeItem('ssamtime_auth_redirect_in_progress');
+          } catch {}
+        }
+        if (isMounted) {
+          setCurrentUser(masterMockUser);
+          setIsAuthenticated(true);
+          setLoading(false);
+        }
+        return;
+      }
+
+      // 1. Check local session storage
       let saved = getSavedAdminUser();
 
       // 2. If not found, restore seamlessly via multi-layer SSO (subdomain cookie, URL tokens, PWA persistent backup)
@@ -174,9 +196,24 @@ export const Admin: React.FC = () => {
     };
   }, []);
 
-  // Listen to Firebase auth state changes for seamless sign-in sync across PC, Mobile, and PWA
+  // Listen to Firebase auth state changes ONLY when master_sso_token cookie is absent
   useEffect(() => {
     let isMounted = true;
+
+    // Check master_sso_token FIRST; if present, skip Firebase Auth social login check and inject Mock User
+    const masterToken = getMasterSSOToken();
+    if (masterToken) {
+      const masterMockUser = buildMasterSSOMockUser();
+      if (!isAuthenticated || currentUser?.uid !== masterMockUser.uid || currentUser?.email !== masterMockUser.email) {
+        setCurrentUser(masterMockUser);
+        setIsAuthenticated(true);
+        setLoading(false);
+      }
+      return () => {
+        isMounted = false;
+      };
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!isMounted) return;
       if (firebaseUser) {
@@ -373,6 +410,7 @@ export const Admin: React.FC = () => {
   };
 
   const handleLogout = async () => {
+    clearMasterSSOTokenCookie();
     await clearAdminSession();
     setIsAuthenticated(false);
     setCurrentUser(null);

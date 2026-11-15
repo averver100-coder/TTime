@@ -18,11 +18,18 @@ export const SISTER_SUBDOMAINS = [
 export type SisterSubdomainId = typeof SISTER_SUBDOMAINS[number]['id'];
 
 // Storage Keys
+export const SSO_MASTER_COOKIE_NAME = 'master_sso_token';
 export const SSO_PERSISTENT_STORAGE_KEY = 'srider_sso_persisted_superadmin_v1';
 export const SSO_COOKIE_SESSION_NAME = 'srider_sso_session';
 export const SSO_COOKIE_SUPERADMIN_NAME = 'srider_superadmin_auth';
 export const SSO_COOKIE_USER_EMAIL_NAME = 'srider_user_email';
 export const SSO_BROADCAST_CHANNEL_NAME = 'srider_sso_channel';
+
+export const SSO_MASTER_MOCK_USER = {
+  email: 'averver100@gmail.com',
+  uid: 'sso_master_admin_uid',
+  displayName: '최고관리자(SSO)',
+} as const;
 
 export interface SSOPayload {
   email: string;
@@ -100,13 +107,67 @@ export function clearCookie(name: string): void {
 }
 
 /**
+ * Parse master_sso_token directly from document.cookie and return its value if present
+ */
+export function getMasterSSOToken(): string | null {
+  if (typeof document === 'undefined' || !document.cookie) return null;
+  const cookies = document.cookie.split(';');
+  for (const rawCookie of cookies) {
+    const eqIdx = rawCookie.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = rawCookie.slice(0, eqIdx).trim();
+    if (key === SSO_MASTER_COOKIE_NAME) {
+      const val = rawCookie.slice(eqIdx + 1).trim();
+      if (!val) return null;
+      try {
+        return decodeURIComponent(val);
+      } catch {
+        return val;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Expire and delete master_sso_token cookie from browser (explicitly including domain=.srider.kr; path=/)
+ */
+export function clearMasterSSOTokenCookie(): void {
+  if (typeof document === 'undefined') return;
+  const expiredDate = 'Thu, 01 Jan 1970 00:00:00 GMT';
+  document.cookie = `${SSO_MASTER_COOKIE_NAME}=; expires=${expiredDate}; max-age=0; domain=.srider.kr; path=/`;
+  document.cookie = `${SSO_MASTER_COOKIE_NAME}=; expires=${expiredDate}; max-age=0; domain=srider.kr; path=/`;
+  document.cookie = `${SSO_MASTER_COOKIE_NAME}=; expires=${expiredDate}; max-age=0; path=/`;
+  clearCookie(SSO_MASTER_COOKIE_NAME);
+}
+
+/**
+ * Build SuperAdmin AdminUser backed by the SSO Master Mock Firebase User object
+ */
+export function buildMasterSSOMockUser(): AdminUser {
+  return {
+    id: SSO_MASTER_MOCK_USER.uid,
+    uid: SSO_MASTER_MOCK_USER.uid,
+    email: SSO_MASTER_MOCK_USER.email,
+    name: SSO_MASTER_MOCK_USER.displayName,
+    displayName: SSO_MASTER_MOCK_USER.displayName,
+    role: 'superadmin',
+    roleName: '최고관리자',
+    department: '교무기획부 / 총괄',
+    loginMethod: 'google',
+  };
+}
+
+/**
  * Build default SuperAdmin user object
  */
 export function buildSuperAdminUser(sourceDesc = 'srider.kr 통합 인증'): AdminUser {
   return {
     id: SUPERADMIN_EMAIL,
+    uid: SSO_MASTER_MOCK_USER.uid,
     email: SUPERADMIN_EMAIL,
     name: '최고관리자 (averver)',
+    displayName: SSO_MASTER_MOCK_USER.displayName,
     role: 'superadmin',
     roleName: '최고관리자',
     department: '교무기획부 / 총괄',
@@ -175,6 +236,7 @@ export function saveSharedSSOSession(user: AdminUser): void {
 
   // 1. Shared Cookies on .srider.kr
   try {
+    setCookie(SSO_MASTER_COOKIE_NAME, encodedToken, 30);
     setCookie(SSO_COOKIE_SESSION_NAME, encodedToken, 30);
     setCookie(SSO_COOKIE_SUPERADMIN_NAME, user.email, 30);
     setCookie(SSO_COOKIE_USER_EMAIL_NAME, user.email, 30);
@@ -204,8 +266,9 @@ export function saveSharedSSOSession(user: AdminUser): void {
 export async function clearSharedSSOSession(): Promise<void> {
   if (typeof window === 'undefined') return;
 
-  // 1. Clear Cookies across all subdomain variations
+  // 1. Clear Cookies across all subdomain variations (including master_sso_token with domain=.srider.kr; path=/)
   try {
+    clearMasterSSOTokenCookie();
     clearCookie(SSO_COOKIE_SESSION_NAME);
     clearCookie(SSO_COOKIE_SUPERADMIN_NAME);
     clearCookie(SSO_COOKIE_USER_EMAIL_NAME);
@@ -234,6 +297,12 @@ export async function clearSharedSSOSession(): Promise<void> {
  */
 export async function restoreSharedSSOSession(): Promise<AdminUser | null> {
   if (typeof window === 'undefined') return null;
+
+  // Path 0 (Highest Priority): master_sso_token Cookie Bypass
+  const masterToken = getMasterSSOToken();
+  if (masterToken) {
+    return buildMasterSSOMockUser();
+  }
 
   // Path 1: URL Query Parameters (?sso_token=... or ?sso_email=... or ?auth_token=...)
   try {

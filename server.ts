@@ -751,8 +751,26 @@ app.post('/api/classes/single', (req, res) => {
 app.get('/api/sso/session', (req, res) => {
   try {
     const cookieHeader = req.headers.cookie || '';
+    const masterMatch = cookieHeader.match(/(?:^|;\s*)master_sso_token=([^;]+)/);
     const match = cookieHeader.match(/(?:^|;\s*)srider_sso_session=([^;]+)/);
     const superMatch = cookieHeader.match(/(?:^|;\s*)srider_superadmin_auth=([^;]+)/);
+
+    if (masterMatch && masterMatch[1]?.trim()) {
+      return res.json({
+        authenticated: true,
+        user: {
+          id: 'sso_master_admin_uid',
+          uid: 'sso_master_admin_uid',
+          email: 'averver100@gmail.com',
+          name: '최고관리자(SSO)',
+          displayName: '최고관리자(SSO)',
+          role: 'superadmin',
+          roleName: '최고관리자',
+          department: '교무기획부 / 총괄',
+          loginMethod: 'google'
+        }
+      });
+    }
     
     if (match) {
       try {
@@ -818,8 +836,10 @@ app.post('/api/sso/session', (req, res) => {
 
       // Set cookies for .srider.kr subdomain tree and host fallback
       res.setHeader('Set-Cookie', [
+        `master_sso_token=${token}; Domain=.srider.kr; Path=/; Max-Age=${maxAge}; SameSite=Lax; Secure`,
         `srider_sso_session=${token}; Domain=.srider.kr; Path=/; Max-Age=${maxAge}; SameSite=Lax; Secure`,
         `srider_superadmin_auth=averver100@gmail.com; Domain=.srider.kr; Path=/; Max-Age=${maxAge}; SameSite=Lax; Secure`,
+        `master_sso_token=${token}; Path=/; Max-Age=${maxAge}; SameSite=Lax`,
         `srider_sso_session=${token}; Path=/; Max-Age=${maxAge}; SameSite=Lax`,
         `srider_superadmin_auth=averver100@gmail.com; Path=/; Max-Age=${maxAge}; SameSite=Lax`
       ]);
@@ -835,6 +855,9 @@ app.post('/api/sso/logout', (req, res) => {
   try {
     const expStr = 'Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
     res.setHeader('Set-Cookie', [
+      `master_sso_token=; Domain=.srider.kr; ${expStr}`,
+      `master_sso_token=; Domain=srider.kr; ${expStr}`,
+      `master_sso_token=; ${expStr}`,
       `srider_sso_session=; Domain=.srider.kr; ${expStr}`,
       `srider_sso_session=; Domain=srider.kr; ${expStr}`,
       `srider_sso_session=; ${expStr}`,
