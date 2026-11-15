@@ -9,7 +9,7 @@ import { Home } from './pages/Home';
 import { Admin } from './pages/Admin';
 import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
 import { checkServerVersionStrict } from './lib/version';
-import { isBuildAcknowledged, isRecentlyUpdated } from './lib/pwaUpdateManager';
+import { isBuildAcknowledged } from './lib/pwaUpdateManager';
 
 export interface DetectedVersionUpdate {
   version: string;
@@ -24,7 +24,6 @@ export default function App() {
     let lastCheckedAt = 0;
 
     const verifyAppVersion = async (forceCheck: boolean = false) => {
-      if (!forceCheck && isRecentlyUpdated()) return;
       const now = Date.now();
       if (!forceCheck && now - lastCheckedAt < 30 * 1000) return;
       lastCheckedAt = now;

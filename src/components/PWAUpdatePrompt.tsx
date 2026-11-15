@@ -147,7 +147,6 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({
   // React to strictly newer release detected by App.tsx startup / background checks
   useEffect(() => {
     if (!externalUpdate) return;
-    if (isRecentlyUpdated()) return;
     if (!isNewerReleaseVersion(externalUpdate.version, getAppReleaseVersion())) return;
     if (externalUpdate.buildId && isBuildDismissedOrApplied(externalUpdate.buildId)) return;
 
@@ -305,7 +304,7 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({
     setNeedRefresh(false);
     onClearExternalUpdate?.();
 
-    // Purge cached assets if CacheStorage API exists so updated chunks are fetched cleanly
+    // Purge cached assets and stale Service Worker registrations so updated chunks are fetched cleanly
     try {
       if ('caches' in window) {
         const keys = await caches.keys();
@@ -322,12 +321,19 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({
       console.debug('[PWAUpdatePrompt] Service worker skipWaiting broadcast error:', err);
     }
 
-    // Trigger updateServiceWorker
+    // Trigger updateServiceWorker and unregister stale workers as fallback
     try {
       await updateServiceWorker(true);
     } catch (err) {
       console.debug('[PWAUpdatePrompt] updateServiceWorker execution error:', err);
     }
+
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.update().catch(() => {})));
+      }
+    } catch {}
 
     // Force fresh reload
     setTimeout(() => {
@@ -355,7 +361,10 @@ export const PWAUpdatePrompt: React.FC<PWAUpdatePromptProps> = ({
       ? 'fixed bottom-4 inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-auto sm:min-w-[460px] sm:max-w-xl z-[9999] pointer-events-auto'
       : 'fixed top-4 inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-auto sm:min-w-[460px] sm:max-w-xl z-[9999] pointer-events-auto';
 
-  const isVisible = showPrompt && (isManualTest || isManualCheckTriggered || !isRecentlyUpdated());
+  const hasStrictlyNewerLabel = Boolean(
+    newVersionLabel && isNewerReleaseVersion(newVersionLabel, getAppReleaseVersion())
+  );
+  const isVisible = showPrompt && (isManualTest || isManualCheckTriggered || hasStrictlyNewerLabel || !isRecentlyUpdated());
   const currentVersion = getAppReleaseVersion();
 
   return (

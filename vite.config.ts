@@ -179,9 +179,10 @@ const ensureVersionFile = (isBuild: boolean): VersionFileInfo => {
     existingRaw?.version && /^V\d{4}\.\d{2}\.\d{2}\.\d{2,}$/.test(existingRaw.version)
   );
 
-  // In dev/serve mode, reuse existing version.json ONLY if date is today, format has patch, and sourceHash is unchanged
+  // Reuse existing version.json in BOTH dev and build when date is today, format is valid, and no source code changed.
+  // This ensures Dev and Deployed builds produce the exact same version when built from identical sources,
+  // while incrementing +1 whenever ANY source file changes and resetting to .01 on a new KST date.
   if (
-    !isBuild &&
     existingRaw &&
     isSameDay &&
     hasProperPatchFormat &&
