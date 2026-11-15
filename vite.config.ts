@@ -153,7 +153,72 @@ const computeSourceHash = (): string => {
   return hash.digest('hex').slice(0, 16);
 };
 
-const ensureVersionFile = (isBuild: boolean): VersionFileInfo => {
+const readFirebaseConfig = (): { apiKey: string; projectId: string; databaseId: string } | null => {
+  try {
+    const cfgPath = path.resolve(__dirname, 'firebase-applet-config.json');
+    if (!fs.existsSync(cfgPath)) return null;
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+    if (cfg?.projectId && cfg?.apiKey) {
+      return {
+        apiKey: String(cfg.apiKey),
+        projectId: String(cfg.projectId),
+        databaseId: String(cfg.firestoreDatabaseId || '(default)'),
+      };
+    }
+  } catch {}
+  return null;
+};
+
+const fetchRemoteVersionCounter = async (): Promise<Partial<VersionFileInfo> | null> => {
+  const cfg = readFirebaseConfig();
+  if (!cfg) return null;
+  try {
+    const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${encodeURIComponent(cfg.databaseId)}/documents/admin/versionCounter?key=${encodeURIComponent(cfg.apiKey)}`;
+    const res = await fetch(url, {
+      method: 'GET',
+      signal: AbortSignal.timeout(2500),
+    });
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    const fields = data?.fields;
+    if (!fields) return null;
+    return {
+      version: fields.version?.stringValue,
+      releaseDate: fields.releaseDate?.stringValue,
+      patch: fields.patch?.integerValue ? parseInt(fields.patch.integerValue, 10) : undefined,
+      buildId: fields.buildId?.stringValue,
+      buildTime: fields.buildTime?.stringValue,
+      sourceHash: fields.sourceHash?.stringValue,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const saveRemoteVersionCounter = async (info: VersionFileInfo): Promise<void> => {
+  const cfg = readFirebaseConfig();
+  if (!cfg) return;
+  try {
+    const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${encodeURIComponent(cfg.databaseId)}/documents/admin/versionCounter?key=${encodeURIComponent(cfg.apiKey)}`;
+    await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(2500),
+      body: JSON.stringify({
+        fields: {
+          version: { stringValue: info.version },
+          releaseDate: { stringValue: info.releaseDate },
+          patch: { integerValue: String(info.patch) },
+          buildId: { stringValue: info.buildId },
+          buildTime: { stringValue: info.buildTime },
+          sourceHash: { stringValue: info.sourceHash },
+        },
+      }),
+    });
+  } catch {}
+};
+
+const ensureVersionFile = async (isBuild: boolean): Promise<VersionFileInfo> => {
   const publicDir = path.resolve(__dirname, 'public');
   if (!fs.existsSync(publicDir)) {
     fs.mkdirSync(publicDir, { recursive: true });
@@ -162,50 +227,53 @@ const ensureVersionFile = (isBuild: boolean): VersionFileInfo => {
   const dateStr = getKSTDateString();
   const sourceHash = computeSourceHash();
 
-  let existingRaw: Partial<VersionFileInfo> | null = null;
+  let localRaw: Partial<VersionFileInfo> | null = null;
   if (fs.existsSync(versionFilePath)) {
     try {
-      existingRaw = JSON.parse(fs.readFileSync(versionFilePath, 'utf-8'));
+      localRaw = JSON.parse(fs.readFileSync(versionFilePath, 'utf-8'));
     } catch {
-      existingRaw = null;
+      localRaw = null;
     }
   }
 
-  const parsedExisting = existingRaw
-    ? parseVersionMetadata(existingRaw.version, existingRaw.releaseDate, existingRaw.patch)
-    : null;
-  const isSameDay = Boolean(parsedExisting && parsedExisting.releaseDate === dateStr);
-  const hasProperPatchFormat = Boolean(
-    existingRaw?.version && /^V\d{4}\.\d{2}\.\d{2}\.\d{2,}$/.test(existingRaw.version)
-  );
+  // Also check Firestore remote versionCounter so clean Cloud Build deploys never reset to .01
+  const remoteRaw = await fetchRemoteVersionCounter();
 
-  // Reuse existing version.json in BOTH dev and build when date is today, format is valid, and no source code changed.
-  // This ensures Dev and Deployed builds produce the exact same version when built from identical sources,
-  // while incrementing +1 whenever ANY source file changes and resetting to .01 on a new KST date.
-  if (
-    existingRaw &&
-    isSameDay &&
-    hasProperPatchFormat &&
-    existingRaw.sourceHash === sourceHash &&
-    existingRaw.buildId
-  ) {
+  const evaluateCandidate = (raw: Partial<VersionFileInfo> | null): VersionFileInfo | null => {
+    if (!raw) return null;
+    const parsed = parseVersionMetadata(raw.version, raw.releaseDate, raw.patch);
+    if (!parsed || parsed.releaseDate !== dateStr || parsed.patch < 1) return null;
+    const padded = String(parsed.patch).padStart(2, '0');
     return {
-      version: existingRaw.version!,
+      version: `V${dateStr}.${padded}`,
       releaseDate: dateStr,
-      patch: parsedExisting!.patch,
-      buildId: existingRaw.buildId!,
-      buildTime: existingRaw.buildTime || new Date().toISOString(),
-      sourceHash,
+      patch: parsed.patch,
+      buildId: String(raw.buildId || `V${dateStr}.${padded}-${sourceHash.slice(0, 8)}`),
+      buildTime: String(raw.buildTime || new Date().toISOString()),
+      sourceHash: String(raw.sourceHash || ''),
     };
+  };
+
+  const todayCandidates = [evaluateCandidate(localRaw), evaluateCandidate(remoteRaw)].filter(
+    (c): c is VersionFileInfo => Boolean(c)
+  );
+  todayCandidates.sort((a, b) => b.patch - a.patch);
+  const highestToday = todayCandidates[0] || null;
+
+  // Reuse highest same-day candidate if sourceHash matches identically across Dev & Cloud Build
+  if (highestToday && highestToday.sourceHash === sourceHash) {
+    try {
+      fs.writeFileSync(versionFilePath, JSON.stringify(highestToday, null, 2) + '\n', 'utf-8');
+    } catch {}
+    if (!remoteRaw || (remoteRaw.version !== highestToday.version || remoteRaw.sourceHash !== sourceHash)) {
+      await saveRemoteVersionCounter(highestToday);
+    }
+    return highestToday;
   }
 
-  // Date rollover protection: ONLY increment patch when existing releaseDate matches today's KST date.
-  // When a new KST day starts, patch always resets to 1 (VYYYY.MM.DD.01).
-  let nextPatch = 1;
-  if (isSameDay && parsedExisting) {
-    nextPatch = parsedExisting.patch > 0 ? parsedExisting.patch + 1 : 1;
-  }
-
+  // Source code changed OR new KST date:
+  // If same KST day -> increment highest patch + 1; if new KST date -> strictly reset to .01
+  const nextPatch = highestToday ? highestToday.patch + 1 : 1;
   const paddedPatch = String(nextPatch).padStart(2, '0');
   const releaseVersion = `V${dateStr}.${paddedPatch}`;
   const buildId = `${releaseVersion}-${sourceHash.slice(0, 8)}`;
@@ -225,11 +293,12 @@ const ensureVersionFile = (isBuild: boolean): VersionFileInfo => {
   } catch (err) {
     console.debug('[Vite] Could not write public/version.json:', err);
   }
+  await saveRemoteVersionCounter(info);
   return info;
 };
 
-export default defineConfig(({ command }) => {
-  const versionInfo = ensureVersionFile(command === 'build');
+export default defineConfig(async ({ command }) => {
+  const versionInfo = await ensureVersionFile(command === 'build');
 
   return {
     define: {
