@@ -33,56 +33,24 @@ export const PWAInstallButton: React.FC = () => {
   const [copiedToast, setCopiedToast] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
 
-  // Auto-show install prompt banner if not installed
+  // Auto-show install prompt banner disabled per user request
   useEffect(() => {
-    if (isInstalled) {
-      setShowTopBanner(false);
-      return;
-    }
-
-    const dismissed = localStorage.getItem('ssaemtime_pwa_dismissed_time');
-    if (dismissed) {
-      const time = parseInt(dismissed, 10);
-      // Don't show auto-banner for 24h if dismissed
-      if (Date.now() - time < 24 * 60 * 60 * 1000) {
-        return;
-      }
-    }
-
-    const timer = setTimeout(() => {
-      setShowTopBanner(true);
-    }, 800);
-
-    return () => clearTimeout(timer);
-  }, [isInstalled]);
+    setShowTopBanner(false);
+  }, []);
 
   const handleDismissBanner = () => {
     setShowTopBanner(false);
-    localStorage.setItem('ssaemtime_pwa_dismissed_time', Date.now().toString());
   };
 
   const handleInstallAction = async () => {
-    if (isIOS) {
-      // iOS doesn't support beforeinstallprompt, must show visual guide
-      setShowModal(true);
-      return;
-    }
-
     setIsInstalling(true);
     try {
-      // Try native install prompt first
       const outcome = await install();
       if (outcome === 'accepted') {
-        setShowTopBanner(false);
-        setShowModal(false);
         setInstalledToast(true);
         setTimeout(() => setInstalledToast(false), 5000);
-      } else {
-        // Show guidance modal
-        setShowModal(true);
       }
     } catch {
-      setShowModal(true);
     } finally {
       setIsInstalling(false);
     }
@@ -130,20 +98,20 @@ export const PWAInstallButton: React.FC = () => {
         </div>
       )}
 
-      {/* Header Install Button - Shown on both desktop and mobile with gradient & pulse */}
+      {/* Header Install Button - Updated to PC/모바일 앱 설치 with 30% larger size */}
       <button
         type="button"
         onClick={handleInstallAction}
         disabled={isInstalling}
-        className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:to-indigo-700 text-white border border-blue-400/40 rounded-xl text-xs font-bold transition shadow-xs shadow-blue-500/25 active:scale-95 disabled:opacity-60 cursor-pointer relative"
+        className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:to-indigo-700 text-white border border-blue-400/40 rounded-xl text-xs sm:text-sm font-extrabold transition shadow-xs shadow-blue-500/25 active:scale-95 disabled:opacity-60 cursor-pointer relative"
         title="바탕화면 및 홈 화면에 앱 설치하기"
       >
-        <span className="relative flex h-2 w-2 mr-0.5">
+        <span className="relative flex h-2.5 w-2.5 mr-0.5">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400"></span>
+          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-400"></span>
         </span>
-        <Download className="w-3.5 h-3.5 text-white shrink-0 animate-pulse" />
-        <span className="whitespace-nowrap">앱 설치</span>
+        <Download className="w-4 h-4 text-white shrink-0 animate-pulse" />
+        <span className="whitespace-nowrap">PC/모바일 앱 설치</span>
       </button>
 
       {/* Top Floating Gradient Install Banner with Pulse Animation */}
@@ -702,116 +670,6 @@ export const PWAInstallModalGuide: React.FC<{ onClose: () => void }> = ({ onClos
   );
 };
 
-export const PWAInstallTopBanner: React.FC<{ className?: string }> = ({ className = '' }) => {
-  const { isInstalled, isIOS, isDesktop, install } = usePWAInstall();
-  const [dismissed, setDismissed] = useState(false);
-  const [showModal, setShowModal] = useState(false);
-  const [isInstalling, setIsInstalling] = useState(false);
-
-  useEffect(() => {
-    const dismissedTime = localStorage.getItem('ssaemtime_pwa_top_banner_dismissed');
-    if (dismissedTime) {
-      const time = parseInt(dismissedTime, 10);
-      if (Date.now() - time < 24 * 60 * 60 * 1000) {
-        setDismissed(true);
-      }
-    }
-  }, []);
-
-  if (isInstalled || dismissed) {
-    return null;
-  }
-
-  const handleDismiss = () => {
-    setDismissed(true);
-    localStorage.setItem('ssaemtime_pwa_top_banner_dismissed', Date.now().toString());
-  };
-
-  const handleInstall = async () => {
-    if (isIOS) {
-      setShowModal(true);
-      return;
-    }
-    setIsInstalling(true);
-    try {
-      const outcome = await install();
-      if (outcome !== 'accepted') {
-        setShowModal(true);
-      }
-    } catch {
-      setShowModal(true);
-    } finally {
-      setIsInstalling(false);
-    }
-  };
-
-  return (
-    <>
-      <div className={`relative overflow-hidden bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-900 text-white rounded-2xl p-4 sm:p-4.5 shadow-xl shadow-blue-950/20 border border-blue-400/35 backdrop-blur-md ring-1 ring-white/10 animate-in fade-in slide-in-from-top-3 duration-300 ${className}`}>
-        {/* Ambient Radial Gradient Glows */}
-        <div className="absolute -top-12 -right-12 w-44 h-44 bg-indigo-400/25 rounded-full blur-2xl pointer-events-none" />
-        <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-blue-400/20 rounded-full blur-xl pointer-events-none" />
-
-        <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="relative shrink-0">
-              <div className="w-12 h-12 rounded-xl bg-white/15 backdrop-blur-sm border border-white/25 p-1 flex items-center justify-center shadow-inner overflow-hidden">
-                <SchoolLogo className="w-full h-full object-contain drop-shadow" />
-              </div>
-              <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-amber-400 border-2 border-indigo-900"></span>
-              </span>
-            </div>
-
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h4 className="text-sm sm:text-base font-black text-white tracking-tight">
-                  {isDesktop ? '쌤타임 PC 정식 앱 설치' : '쌤타임 앱 홈 화면 설치'}
-                </h4>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-black bg-amber-400/20 border border-amber-300/40 text-amber-200 rounded-full animate-pulse">
-                  <Sparkles className="w-3 h-3 text-amber-300" />
-                  {isDesktop ? '바탕화면 등록' : '공식 PWA'}
-                </span>
-              </div>
-              <p className="text-xs text-blue-100/90 leading-tight mt-1">
-                {isDesktop 
-                  ? '주소창 없는 전체화면 & 독립 창으로 빠른 시간표 조회' 
-                  : '홈 화면에 추가하여 주소창 없이 앱처럼 실시간 시간표 조회'}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0 justify-end">
-            <button
-              type="button"
-              onClick={handleInstall}
-              disabled={isInstalling}
-              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-400 via-amber-300 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-lg shadow-amber-500/25 transition-all transform hover:scale-[1.01] active:scale-95 animate-pulse cursor-pointer disabled:opacity-60 whitespace-nowrap"
-            >
-              {isDesktop ? (
-                <Monitor className="w-4 h-4 text-slate-950" />
-              ) : (
-                <Download className="w-4 h-4 text-slate-950 animate-bounce" />
-              )}
-              <span>{isIOS ? '설치 방법 안내' : isDesktop ? 'PC 앱 바로 설치' : '지금 앱 바로 설치'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleDismiss}
-              className="p-2 text-white/70 hover:text-white hover:bg-white/15 rounded-xl transition shrink-0 cursor-pointer"
-              title="배너 닫기"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {showModal && (
-        <PWAInstallModalGuide onClose={() => setShowModal(false)} />
-      )}
-    </>
-  );
+export const PWAInstallTopBanner: React.FC<{ className?: string }> = () => {
+  return null;
 };

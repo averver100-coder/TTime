@@ -20,7 +20,7 @@ import {
   BellRing,
   WifiOff
 } from 'lucide-react';
-import { PWAInstallButton, PWAInstallTopBanner } from '../components/PWAInstallButton';
+import { PWAInstallButton } from '../components/PWAInstallButton';
 import { SchoolLogo } from '../components/SchoolLogo';
 import { TodayGateDuty } from '../components/TodayGateDuty';
 import { TodayLunchDuty } from '../components/TodayLunchDuty';
@@ -1078,8 +1078,8 @@ export const Home: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#F8FAFC] pb-24">
       {/* Header */}
-      <header className="bg-white px-4 py-3 sm:py-3.5 shadow-xs sticky top-0 z-20 border-b border-gray-100">
-        <div className="max-w-2xl mx-auto flex items-center justify-between">
+      <header className="bg-white py-3 sm:py-3.5 shadow-xs sticky top-0 z-20 border-b border-gray-100">
+        <div className="max-w-2xl mx-auto px-4 flex items-center justify-between">
           <div className="flex items-center gap-3 sm:gap-4 cursor-pointer select-none group" onClick={handleLogoClick}>
             <SchoolLogo 
               className="w-16 h-16 sm:w-20 sm:h-20 object-contain shrink-0 drop-shadow-sm transition-transform group-hover:scale-105 active:scale-95"
@@ -1165,9 +1165,6 @@ export const Home: React.FC = () => {
       )}
 
       <main className="max-w-2xl mx-auto p-4 mt-2">
-        {/* Top Gradient Floating PWA Install Banner with Pulse Animation */}
-        <PWAInstallTopBanner className="mb-4" />
-
         {/* Next Class 5-Min Reminder Banner ("5분 뒤 2-4반 수업입니다") */}
         {upcoming5MinAlert && (
           <div
