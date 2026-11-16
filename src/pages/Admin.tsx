@@ -1096,56 +1096,6 @@ export const Admin: React.FC = () => {
           </div>
         </div>
 
-        {/* srider.kr Subdomains SSO Navigation Hub */}
-        {currentUser?.role === 'superadmin' && (
-          <div className="mb-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 text-white rounded-2xl p-4 shadow-md border border-indigo-800/50">
-            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
-              <div className="flex items-start gap-2.5">
-                <span className="flex h-2.5 w-2.5 relative mt-1">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                </span>
-                <div>
-                  <div className="text-xs font-bold flex items-center gap-1.5 text-cyan-300">
-                    <Globe className="w-3.5 h-3.5" />
-                    <span>srider.kr 도메인 교내 통합 관리망 (SSO 연결됨)</span>
-                    <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] rounded-md font-mono">
-                      자동 로그인 활성
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-gray-300 mt-0.5 leading-relaxed">
-                    다른 서브도메인 앱으로 이동 시 별도 로그인 없이 최고관리자({SUPERADMIN_EMAIL}) 권한이 자동으로 승계됩니다.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1.5 flex-wrap w-full lg:w-auto">
-                {SISTER_SUBDOMAINS.map(sister => {
-                  const isCurrent = sister.id === 'ttime';
-                  return (
-                    <a
-                      key={sister.id}
-                      href={isCurrent ? '#' : getSisterSubdomainSSOLink(sister.id)}
-                      onClick={isCurrent ? (e) => e.preventDefault() : undefined}
-                      target={isCurrent ? undefined : '_blank'}
-                      rel="noopener noreferrer"
-                      className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs ${
-                        isCurrent
-                          ? 'bg-blue-600/60 text-cyan-200 border border-cyan-400/40 cursor-default'
-                          : 'bg-white/10 hover:bg-white/20 text-white border border-white/20 cursor-pointer hover:border-cyan-300/60'
-                      }`}
-                      title={sister.desc}
-                    >
-                      <span>{sister.name}</span>
-                      {!isCurrent && <ExternalLink className="w-3 h-3 text-cyan-300 opacity-80" />}
-                    </a>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Admin Navigation Tabs (5-tab responsive layout, zero horizontal scroll) */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5 p-1.5 bg-gray-200/80 rounded-2xl mb-6 shadow-inner">
           <button
