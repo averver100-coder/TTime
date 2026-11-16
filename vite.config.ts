@@ -358,6 +358,7 @@ export default defineConfig(async ({ command }) => {
           ],
         },
         workbox: {
+          cacheId: `ssamtime-${versionInfo.version.toLowerCase()}`,
           skipWaiting: true,
           clientsClaim: true,
           cleanupOutdatedCaches: true,
