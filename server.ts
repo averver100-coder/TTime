@@ -2,6 +2,7 @@ process.env.DISABLE_HMR = 'true';
 import 'dotenv/config';
 import express from 'express';
 import fs from 'fs';
+import { promises as fsPromises } from 'fs';
 import path from 'path';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
@@ -557,8 +558,306 @@ app.get('/api/teachers', (req, res) => {
   }
 });
 
-// Single teacher upsert (preserves all other teachers safely)
-app.post('/api/teachers/single', (req, res) => {
+import fs from 'fs';
+import { promises as fsPromises } from 'fs';
+import path from 'path';
+
+// 기존 server.ts 상단에 선언된 BACKUP_DIR / serverDb 활용
+const BACKUP_DIR = path.join(process.cwd(), 'src', 'data', 'backups');
+
+// ============================================================================
+// 이벤트 기반 백업 과부하 방지 (Throttle / Debounce / 동시 실행 잠금) 설정
+// ============================================================================
+const AUTO_BACKUP_COOLDOWN_MS = 60 * 1000; // 이전 자동 백업 성공 후 최소 1분 쿨다운
+const AUTO_BACKUP_DEBOUNCE_MS = 1500;      // 연속 수정 이벤트 병합 대기(1.5초)
+
+interface BackupRuntimeGuard {
+  lastTeacherAutoSuccessAt: number;
+  lastSystemAutoSuccessAt: number;
+  isTeacherBackupRunning: boolean;
+  isSystemBackupRunning: boolean;
+  teacherDebounceTimer: NodeJS.Timeout | null;
+  systemDebounceTimer: NodeJS.Timeout | null;
+  pendingTeacherTask: { teachers: any[]; reason: string } | null;
+  pendingSystemBackup: any | null;
+}
+
+const backupGuard: BackupRuntimeGuard = {
+  lastTeacherAutoSuccessAt: 0,
+  lastSystemAutoSuccessAt: 0,
+  isTeacherBackupRunning: false,
+  isSystemBackupRunning: false,
+  teacherDebounceTimer: null,
+  systemDebounceTimer: null,
+  pendingTeacherTask: null,
+  pendingSystemBackup: null,
+};
+
+async function ensureBackupDirAsync(): Promise<void> {
+  await fsPromises.mkdir(BACKUP_DIR, { recursive: true });
+}
+
+// ============================================================================
+// 1. 교원 시간표 비동기 안전 백업 워커 (단건/일괄 수정 시 호출)
+// ============================================================================
+async function executeTeacherBackupAsync(teachers: any[], reason: string): Promise<string | null> {
+  try {
+    if (!Array.isArray(teachers) || teachers.length === 0) return null;
+
+    await ensureBackupDirAsync();
+
+    // 깊은 복사로 백그라운드 실행 중 원본 참조 변형 방지
+    const snapshotData = JSON.parse(JSON.stringify(teachers));
+    const safeReason = String(reason || 'auto').replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 40) || 'auto';
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `backup_${timestamp}_${snapshotData.length}teachers_${safeReason}.json`;
+    const filePath = path.join(BACKUP_DIR, filename);
+
+    await fsPromises.writeFile(filePath, JSON.stringify(snapshotData, null, 2), 'utf-8');
+
+    // 최근 25개만 유지하고 초과분 안전 삭제 (개별 파일 오류 격리)
+    const dirEntries = await fsPromises.readdir(BACKUP_DIR);
+    const backupEntries = dirEntries.filter((f) => f.startsWith('backup_') && f.endsWith('.json'));
+
+    const withMtime = await Promise.all(
+      backupEntries.map(async (name) => {
+        try {
+          const stat = await fsPromises.stat(path.join(BACKUP_DIR, name));
+          return { name, time: stat.mtimeMs };
+        } catch {
+          return { name, time: 0 };
+        }
+      })
+    );
+
+    withMtime.sort((a, b) => b.time - a.time);
+
+    if (withMtime.length > 25) {
+      for (const oldFile of withMtime.slice(25)) {
+        try {
+          await fsPromises.unlink(path.join(BACKUP_DIR, oldFile.name));
+        } catch (unlinkErr) {
+          console.warn(`[Backup] 오래된 교원 백업 삭제 스킵 (${oldFile.name}):`, unlinkErr);
+        }
+      }
+    }
+
+    return filename;
+  } catch (err) {
+    console.error('[Backup] 교원 백업 백그라운드 작업 예외 방어:', err);
+    return null;
+  }
+}
+
+/**
+ * 이벤트 기반 교원 자동 백업 스케줄러 (클라이언트 응답 블로킹 없음)
+ * - forceImmediate: manual_snapshot, before_restore, after_restore 등은 쿨다운 무시
+ */
+function triggerTeacherBackupAsync(
+  teachers: any[],
+  reason: string = 'auto_edit',
+  forceImmediate: boolean = false
+): void {
+  try {
+    if (!Array.isArray(teachers) || teachers.length === 0) return;
+
+    // 수동/복원 스냅샷은 Throttle 우회하되 이벤트 루프 다음 틱으로 비동기 분리
+    if (forceImmediate) {
+      const cloned = JSON.parse(JSON.stringify(teachers));
+      setImmediate(() => {
+        void executeTeacherBackupAsync(cloned, reason).catch((err) => {
+          console.error('[Backup] 즉시 교원 백업 비동기 예외 방어:', err);
+        });
+      });
+      return;
+    }
+
+    const now = Date.now();
+    // 마지막 자동 백업 성공 후 1분 이내면 실행 차단 (I/O 폭주 방어)
+    if (now - backupGuard.lastTeacherAutoSuccessAt < AUTO_BACKUP_COOLDOWN_MS) {
+      return;
+    }
+
+    // 연속 수정 이벤트가 발생하면 최신 데이터만 남기고 Debounce 타이머 리셋
+    backupGuard.pendingTeacherTask = {
+      teachers: JSON.parse(JSON.stringify(teachers)),
+      reason,
+    };
+
+    if (backupGuard.teacherDebounceTimer) {
+      clearTimeout(backupGuard.teacherDebounceTimer);
+    }
+
+    backupGuard.teacherDebounceTimer = setTimeout(() => {
+      backupGuard.teacherDebounceTimer = null;
+
+      setImmediate(async () => {
+        if (backupGuard.isTeacherBackupRunning) return;
+        const task = backupGuard.pendingTeacherTask;
+        backupGuard.pendingTeacherTask = null;
+        if (!task) return;
+
+        // 실행 직전 재검증 (대기 중 다른 백업이 성공했을 수 있음)
+        if (Date.now() - backupGuard.lastTeacherAutoSuccessAt < AUTO_BACKUP_COOLDOWN_MS) {
+          return;
+        }
+
+        backupGuard.isTeacherBackupRunning = true;
+        try {
+          const savedFile = await executeTeacherBackupAsync(task.teachers, task.reason);
+          if (savedFile) {
+            backupGuard.lastTeacherAutoSuccessAt = Date.now();
+          }
+        } catch (err) {
+          console.error('[Backup] 교원 자동 백업 워커 치명 오류 차단:', err);
+        } finally {
+          backupGuard.isTeacherBackupRunning = false;
+        }
+      });
+    }, AUTO_BACKUP_DEBOUNCE_MS);
+  } catch (err) {
+    console.error('[Backup] 교원 백업 스케줄링 방어:', err);
+  }
+}
+
+// ============================================================================
+// 2. 통합 시스템 스냅샷 비동기 안전 백업 워커 ('auto' 10개 순환 / 'manual' 영구 보존)
+// ============================================================================
+async function executeSystemBackupDiskWriteAsync(backup: any): Promise<{
+  saved: boolean;
+  serverFilename: string;
+  id: string;
+} | null> {
+  try {
+    if (!backup || !backup.id || !backup.backupType || !backup.payload) return null;
+    if (backup.backupType !== 'auto' && backup.backupType !== 'manual') return null;
+
+    await ensureBackupDirAsync();
+
+    const safeId = String(backup.id).replace(/[^a-zA-Z0-9_\-]/g, '');
+    if (!safeId) return null;
+
+    const filename = `sysbackup_${backup.backupType}_${safeId}.json`;
+    const filePath = path.join(BACKUP_DIR, filename);
+
+    // 용량 최적화를 위해 불필요한 auditLogs 방어적으로 제거
+    const cleanPayload = { ...backup.payload };
+    delete cleanPayload.auditLogs;
+
+    const recordToSave = {
+      ...backup,
+      id: safeId,
+      payload: cleanPayload,
+      savedToServerDisk: true,
+      serverFilename: filename,
+    };
+
+    await fsPromises.writeFile(filePath, JSON.stringify(recordToSave, null, 2), 'utf-8');
+
+    // 'auto' 스냅샷만 최신 10개 유지 순환 삭제 ('manual' 영구 스냅샷은 절대 건드리지 않음)
+    if (backup.backupType === 'auto') {
+      const dirEntries = await fsPromises.readdir(BACKUP_DIR);
+      const autoFiles = dirEntries.filter(
+        (f) => f.startsWith('sysbackup_auto_') && f.endsWith('.json')
+      );
+
+      const autoWithTime = await Promise.all(
+        autoFiles.map(async (name) => {
+          const fullPath = path.join(BACKUP_DIR, name);
+          let createdAt = 0;
+          try {
+            const raw = await fsPromises.readFile(fullPath, 'utf-8');
+            const parsed = JSON.parse(raw);
+            createdAt = Number(parsed?.createdAt) || 0;
+          } catch {}
+          if (!createdAt) {
+            try {
+              const stat = await fsPromises.stat(fullPath);
+              createdAt = stat.mtimeMs;
+            } catch {
+              createdAt = 0;
+            }
+          }
+          return { name, createdAt };
+        })
+      );
+
+      autoWithTime.sort((a, b) => b.createdAt - a.createdAt);
+
+      if (autoWithTime.length > 10) {
+        for (const oldFile of autoWithTime.slice(10)) {
+          try {
+            await fsPromises.unlink(path.join(BACKUP_DIR, oldFile.name));
+          } catch (unlinkErr) {
+            console.warn(`[Backup] 오래된 자동 스냅샷 삭제 스킵 (${oldFile.name}):`, unlinkErr);
+          }
+        }
+      }
+    }
+
+    return { saved: true, serverFilename: filename, id: safeId };
+  } catch (err) {
+    console.error('[Backup] 시스템 스냅샷 디스크 저장 예외 방어:', err);
+    return null;
+  }
+}
+
+/**
+ * 'auto' 시스템 백업 전용 비동기 큐 (Throttle 1분 + Debounce 1.5초 + 백그라운드 격리)
+ */
+function enqueueAutoSystemBackupAsync(backup: any): { queued: boolean; throttled: boolean } {
+  try {
+    const now = Date.now();
+    if (now - backupGuard.lastSystemAutoSuccessAt < AUTO_BACKUP_COOLDOWN_MS) {
+      return { queued: false, throttled: true };
+    }
+
+    backupGuard.pendingSystemBackup = JSON.parse(JSON.stringify(backup));
+
+    if (backupGuard.systemDebounceTimer) {
+      clearTimeout(backupGuard.systemDebounceTimer);
+    }
+
+    backupGuard.systemDebounceTimer = setTimeout(() => {
+      backupGuard.systemDebounceTimer = null;
+
+      setImmediate(async () => {
+        if (backupGuard.isSystemBackupRunning) return;
+        const targetBackup = backupGuard.pendingSystemBackup;
+        backupGuard.pendingSystemBackup = null;
+        if (!targetBackup) return;
+
+        if (Date.now() - backupGuard.lastSystemAutoSuccessAt < AUTO_BACKUP_COOLDOWN_MS) {
+          return;
+        }
+
+        backupGuard.isSystemBackupRunning = true;
+        try {
+          const result = await executeSystemBackupDiskWriteAsync(targetBackup);
+          if (result?.saved) {
+            backupGuard.lastSystemAutoSuccessAt = Date.now();
+          }
+        } catch (err) {
+          console.error('[Backup] 자동 시스템 스냅샷 워커 오류 차단:', err);
+        } finally {
+          backupGuard.isSystemBackupRunning = false;
+        }
+      });
+    }, AUTO_BACKUP_DEBOUNCE_MS);
+
+    return { queued: true, throttled: false };
+  } catch (err) {
+    console.error('[Backup] 자동 시스템 백업 큐잉 오류 방어:', err);
+    return { queued: false, throttled: false };
+  }
+}
+
+// ============================================================================
+// 3. 메인 비즈니스 API 핸들러 연동 예시 (응답 지연 제로 + 비동기 백업 분리)
+// ============================================================================
+
+// (A) 단일 선생님 저장 API: 메인 파일만 빠르게 갱신 후 백업은 백그라운드로 분리
+app.post('/api/teachers/single', async (req, res) => {
   try {
     const { teacher } = req.body;
     if (!teacher || !teacher.name) {
@@ -567,30 +866,26 @@ app.post('/api/teachers/single', (req, res) => {
 
     const filePath = path.join(process.cwd(), 'src', 'data', 'defaultTeachers.json');
     let currentTeachers: any[] = [];
-    if (fs.existsSync(filePath)) {
-      try {
-        currentTeachers = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-      } catch {
-        currentTeachers = [];
-      }
+    try {
+      const raw = await fsPromises.readFile(filePath, 'utf-8');
+      currentTeachers = JSON.parse(raw);
+      if (!Array.isArray(currentTeachers)) currentTeachers = [];
+    } catch {
+      currentTeachers = [];
     }
 
-    // Backup before modification
-    if (currentTeachers.length > 0) {
-      createTeacherBackup(currentTeachers, `before_edit_${encodeURIComponent(teacher.name).slice(0, 10)}`);
-    }
-
-    // Upsert teacher
-    const idx = currentTeachers.findIndex(t => t.name === teacher.name);
+    const idx = currentTeachers.findIndex((t) => t.name === teacher.name);
     if (idx !== -1) {
       currentTeachers[idx] = teacher;
     } else {
       currentTeachers.push(teacher);
     }
 
-    currentTeachers.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
-    fs.writeFileSync(filePath, JSON.stringify(currentTeachers, null, 2), 'utf-8');
-    createTeacherBackup(currentTeachers, `after_edit_${encodeURIComponent(teacher.name).slice(0, 10)}`);
+    currentTeachers.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ko'));
+    await fsPromises.writeFile(filePath, JSON.stringify(currentTeachers, null, 2), 'utf-8');
+
+    // 클라이언트 응답은 즉시 반환하고, 백업은 Throttle/Debounce 가드 하에 백그라운드 실행
+    triggerTeacherBackupAsync(currentTeachers, 'auto_edit_single', false);
 
     return res.json({ success: true, teacherCount: currentTeachers.length, teacher });
   } catch (err) {
@@ -1094,7 +1389,8 @@ app.get('/api/system-backups', (req, res) => {
   }
 });
 
-app.post('/api/system-backups', (req, res) => {
+// (B) 하이브리드 시스템 스냅샷 저장 API (/api/system-backups)
+app.post('/api/system-backups', async (req, res) => {
   try {
     const { backup } = req.body;
     if (!backup || !backup.id || !backup.backupType || !backup.payload) {
@@ -1104,50 +1400,34 @@ app.post('/api/system-backups', (req, res) => {
       return res.status(400).json({ error: 'backupType은 auto 또는 manual이어야 합니다.' });
     }
 
-    ensureBackupDir();
-    const safeId = String(backup.id).replace(/[^a-zA-Z0-9_\-]/g, '');
-    const filename = `sysbackup_${backup.backupType}_${safeId}.json`;
-    const filePath = path.join(BACKUP_DIR, filename);
-
-    // Strip auditLogs defensively even if sent
-    const cleanPayload = { ...backup.payload };
-    delete cleanPayload.auditLogs;
-
-    const recordToSave = {
-      ...backup,
-      id: safeId,
-      payload: cleanPayload,
-      savedToServerDisk: true,
-      serverFilename: filename,
-    };
-
-    fs.writeFileSync(filePath, JSON.stringify(recordToSave, null, 2), 'utf-8');
-
-    // Rotate ONLY auto disk snapshots (keep newest 10, never touch manual snapshots)
+    // 1) 'auto' 백업: 1분 쿨다운 + 1.5초 디바운스 + 백그라운드 비동기 분리 (즉시 응답)
     if (backup.backupType === 'auto') {
-      const autoFiles = fs.readdirSync(BACKUP_DIR)
-        .filter(f => f.startsWith('sysbackup_auto_') && f.endsWith('.json'))
-        .map(f => {
-          let createdAt = 0;
-          try {
-            const parsed = JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, f), 'utf-8'));
-            createdAt = Number(parsed.createdAt) || 0;
-          } catch {}
-          if (!createdAt) {
-            createdAt = fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs;
-          }
-          return { name: f, createdAt };
-        })
-        .sort((a, b) => b.createdAt - a.createdAt);
-
-      if (autoFiles.length > 10) {
-        for (const oldFile of autoFiles.slice(10)) {
-          try {
-            fs.unlinkSync(path.join(BACKUP_DIR, oldFile.name));
-          } catch {}
-        }
-      }
+      const { queued, throttled } = enqueueAutoSystemBackupAsync(backup);
+      return res.json({
+        success: true,
+        asyncBackground: true,
+        queued,
+        throttled,
+        id: String(backup.id).replace(/[^a-zA-Z0-9_\-]/g, ''),
+      });
     }
+
+    // 2) 'manual' 영구 스냅샷: 관리자가 명시적으로 누른 요청이므로 즉시 안전 저장 (예외 방어 포함)
+    const result = await executeSystemBackupDiskWriteAsync(backup);
+    if (!result?.saved) {
+      return res.status(500).json({ error: '수동 영구 스냅샷 저장에 실패했습니다.' });
+    }
+
+    return res.json({
+      success: true,
+      serverFilename: result.serverFilename,
+      id: result.id,
+    });
+  } catch (err) {
+    console.error('Error handling system backup request:', err);
+    return res.status(500).json({ error: '서버 디스크 백업 처리에 실패했습니다.' });
+  }
+});
 
     return res.json({ success: true, serverFilename: filename, id: safeId });
   } catch (err) {
