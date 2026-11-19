@@ -15,11 +15,11 @@
   "prefer_related_applications": false,
   "categories": ["education", "productivity"],
   "icons": [
-  {
-    "src": "/ttime-logo.png?v=2",
-    "sizes": "512x512",
-    "type": "image/png",
-    "purpose": "any"
-  }
-]
+    {
+      "src": "/ttime-logo.png?v=2",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
 }

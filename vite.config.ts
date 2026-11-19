@@ -316,7 +316,7 @@ export default defineConfig(async ({ command }) => {
       aistudioMediaPlugin(),
       VitePWA({
         registerType: 'prompt',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'logo.svg', 'logo.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'],
+        includeAssets: ['ttime-logo.png'],
         manifest: {
           id: '/',
           name: '쌤타임 - 실시간 수업시간표 조회 시스템',
@@ -329,29 +329,14 @@ export default defineConfig(async ({ command }) => {
           orientation: 'any',
           start_url: '/',
           scope: '/',
+          lang: 'ko-KR',
+          dir: 'ltr',
           prefer_related_applications: false,
+          categories: ['education', 'productivity'],
           icons: [
             {
-              src: '/pwa-192x192.png',
-              sizes: '192x192',
-              type: 'image/png',
-              purpose: 'any',
-            },
-            {
-              src: '/pwa-512x512.png',
+              src: '/ttime-logo.png?v=2',
               sizes: '512x512',
-              type: 'image/png',
-              purpose: 'any',
-            },
-            {
-              src: '/pwa-maskable-512x512.png',
-              sizes: '512x512',
-              type: 'image/png',
-              purpose: 'maskable',
-            },
-            {
-              src: '/apple-touch-icon.png',
-              sizes: '180x180',
               type: 'image/png',
               purpose: 'any',
             },
@@ -371,7 +356,22 @@ export default defineConfig(async ({ command }) => {
         devOptions: {
           enabled: false,
         },
-      })
+      }),
+      {
+        name: 'dedupe-manifest-link',
+        enforce: 'post' as const,
+        transformIndexHtml: {
+          order: 'post' as const,
+          handler(html: string) {
+            let seen = false;
+            return html.replace(/<link\b[^>]*\brel=["']manifest["'][^>]*>\s*/gi, (match) => {
+              if (seen) return '';
+              seen = true;
+              return match;
+            });
+          },
+        },
+      } satisfies Plugin,
     ],
     resolve: {
       alias: {

@@ -2458,18 +2458,29 @@ app.get(/^\/workbox-[a-zA-Z0-9]+\.js$/, (req, res, next) => {
 });
 
 app.get('/manifest.webmanifest', (req, res, next) => {
-  const p = path.join(process.cwd(), 'public', 'manifest.webmanifest');
-  if (fs.existsSync(p)) {
-    res.setHeader('Content-Type', 'application/manifest+json');
-    return res.sendFile(p);
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  const distManifest = path.join(process.cwd(), 'dist', 'manifest.webmanifest');
+  const publicManifest = path.join(process.cwd(), 'public', 'manifest.webmanifest');
+  const target =
+    process.env.NODE_ENV === 'production' && fs.existsSync(distManifest)
+      ? distManifest
+      : publicManifest;
+  if (fs.existsSync(target)) {
+    res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+    return res.sendFile(target);
   }
   next();
 });
 
 app.get('/manifest.json', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   const p = path.join(process.cwd(), 'public', 'manifest.json');
   if (fs.existsSync(p)) {
-    res.setHeader('Content-Type', 'application/manifest+json');
+    res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
     return res.sendFile(p);
   }
   next();
