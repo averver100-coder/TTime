@@ -558,13 +558,6 @@ app.get('/api/teachers', (req, res) => {
   }
 });
 
-import fs from 'fs';
-import { promises as fsPromises } from 'fs';
-import path from 'path';
-
-// 기존 server.ts 상단에 선언된 BACKUP_DIR / serverDb 활용
-const BACKUP_DIR = path.join(process.cwd(), 'src', 'data', 'backups');
-
 // ============================================================================
 // 이벤트 기반 백업 과부하 방지 (Throttle / Debounce / 동시 실행 잠금) 설정
 // ============================================================================
@@ -1426,13 +1419,6 @@ app.post('/api/system-backups', async (req, res) => {
   } catch (err) {
     console.error('Error handling system backup request:', err);
     return res.status(500).json({ error: '서버 디스크 백업 처리에 실패했습니다.' });
-  }
-});
-
-    return res.json({ success: true, serverFilename: filename, id: safeId });
-  } catch (err) {
-    console.error('Error saving system backup to disk:', err);
-    return res.status(500).json({ error: '서버 디스크 백업 저장에 실패했습니다.' });
   }
 });
 
